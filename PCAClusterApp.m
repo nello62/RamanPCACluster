@@ -194,6 +194,15 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         kids = findall(ax);
         kids(kids == ax) = [];
         delete(kids);
+        % GSCATTER (used for the cluster scatter plots) sets XLim/YLim
+        % explicitly on its first call, which switches XLimMode/YLimMode
+        % to 'manual' -- confirmed empirically: without resetting this
+        % back to 'auto', every later re-run kept the FIRST run's axis
+        % range frozen in place regardless of how different the new
+        % data's own range was, leaving part of it plotted outside the
+        % visible area.
+        ax.XLimMode = 'auto';
+        ax.YLimMode = 'auto';
     end
 
 % -------------------------------------------------------------------------
@@ -486,6 +495,14 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
                 plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), groupColors(gi,:));
             end
             hold(axClustersByGroup, 'off');
+            % Ellipses can extend past the scatter points' own bounds
+            % (especially the 90% one, for a spread-out group); GSCATTER
+            % already fixed XLim/YLim to the scatter alone before these
+            % were added, and axes in 'manual' limit mode don't grow to
+            % fit data plotted afterward -- switching back to 'auto' here
+            % forces a recompute against everything now in the axes.
+            axClustersByGroup.XLimMode = 'auto';
+            axClustersByGroup.YLimMode = 'auto';
         end
 
         clusterColors = lines(k);
@@ -500,6 +517,8 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
                 plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), clusterColors(c,:));
             end
             hold(axClustersByKmeans, 'off');
+            axClustersByKmeans.XLimMode = 'auto';
+            axClustersByKmeans.YLimMode = 'auto';
         end
     end
 
