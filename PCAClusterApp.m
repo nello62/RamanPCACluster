@@ -56,29 +56,76 @@ fullRangeBtn = uibutton(sidebar, 'push', 'Position', [10 684 sidebarW-20 26], ..
 % ---- Sidebar: Preprocessing ----------------------------------------------
 uilabel(sidebar, 'Position', [10 648 sidebarW-20 18], 'Text', 'Preprocessing:', 'FontWeight', 'bold');
 baselineCheck = uicheckbox(sidebar, 'Position', [10 622 sidebarW-20 22], ...
-    'Text', 'Subtract baseline (airPLS)', 'Value', true, ...
+    'Text', 'Subtract baseline', 'Value', true, ...
     'ValueChangedFcn', @(s,e) onBaselineCheckChanged());
-uilabel(sidebar, 'Position', [10 594 110 18], 'Text', 'Baseline lambda:');
-baselineLambdaField = uieditfield(sidebar, 'numeric', 'Position', [140 592 sidebarW-160 22], 'Value', 1e6, 'Limits', [0 Inf]);
-uilabel(sidebar, 'Position', [10 566 110 18], 'Text', 'Baseline order:');
-baselineOrderField = uieditfield(sidebar, 'numeric', 'Position', [140 564 sidebarW-160 22], 'Value', 2, 'Limits', [1 4], 'RoundFractionalValues', 'on');
-smoothCheck = uicheckbox(sidebar, 'Position', [10 536 sidebarW-20 22], 'Text', 'Savitzky-Golay smoothing', 'Value', true);
-uilabel(sidebar, 'Position', [10 508 70 18], 'Text', 'Normalize:');
-normalizeDD = uidropdown(sidebar, 'Position', [90 506 sidebarW-110 22], ...
+baselineMethodDD = uidropdown(sidebar, 'Position', [10 594 sidebarW-20 22], ...
+    'Items', {'backcor','airPLS','SNIP','APLS'}, 'Value', 'airPLS', ...
+    'ValueChangedFcn', @(s,e) onBaselineMethodChanged());
+
+% backcor parameters (visible when Method = backcor), one per row.
+lblBackcorOrder = uilabel(sidebar, 'Position', [10 566 110 18], 'Text', 'Order:');
+backcorOrderField = uieditfield(sidebar, 'numeric', 'Position', [125 564 sidebarW-145 22], ...
+    'Value', 5, 'Limits', [0 Inf], 'RoundFractionalValues', 'on');
+lblBackcorThreshold = uilabel(sidebar, 'Position', [10 538 110 18], 'Text', 'Threshold:');
+backcorThresholdField = uieditfield(sidebar, 'numeric', 'Position', [125 536 sidebarW-145 22], 'Value', 0.1);
+lblBackcorFct = uilabel(sidebar, 'Position', [10 510 110 18], 'Text', 'Cost function:');
+backcorFctDD = uidropdown(sidebar, 'Position', [125 508 sidebarW-145 22], ...
+    'Items', {'sh','ah','stq','atq'}, 'Value', 'atq');
+backcorHandles = [lblBackcorOrder, backcorOrderField, lblBackcorThreshold, backcorThresholdField, lblBackcorFct, backcorFctDD];
+
+% airPLS parameters (visible when Method = airPLS), packed two-per-row.
+lblLambda = uilabel(sidebar, 'Position', [10 566 55 18], 'Text', 'Lambda:');
+baselineLambdaField = uieditfield(sidebar, 'numeric', 'Position', [68 564 95 22], 'Value', 1e6, 'Limits', [0 Inf]);
+lblDiffOrder = uilabel(sidebar, 'Position', [175 566 55 18], 'Text', 'Diff ord:');
+baselineOrderField = uieditfield(sidebar, 'numeric', 'Position', [233 564 sidebarW-253 22], ...
+    'Value', 2, 'Limits', [1 4], 'RoundFractionalValues', 'on');
+lblEdgeWt = uilabel(sidebar, 'Position', [10 538 55 18], 'Text', 'Edge wt:');
+airplsWepField = uieditfield(sidebar, 'numeric', 'Position', [68 536 95 22], 'Value', 0.1, 'Limits', [0 1]);
+lblAsym = uilabel(sidebar, 'Position', [175 538 55 18], 'Text', 'p (asym):');
+airplsPField = uieditfield(sidebar, 'numeric', 'Position', [233 536 sidebarW-253 22], 'Value', 0.05, 'Limits', [0 1]);
+lblAirplsIter = uilabel(sidebar, 'Position', [10 510 70 18], 'Text', 'Max iter:');
+airplsIterField = uieditfield(sidebar, 'numeric', 'Position', [85 508 100 22], ...
+    'Value', 20, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+airplsHandles = [lblLambda, baselineLambdaField, lblDiffOrder, baselineOrderField, ...
+    lblEdgeWt, airplsWepField, lblAsym, airplsPField, lblAirplsIter, airplsIterField];
+
+% SNIP parameters (visible when Method = SNIP).
+lblSnipIter = uilabel(sidebar, 'Position', [10 566 140 18], 'Text', 'Iterations (M):');
+snipIterField = uieditfield(sidebar, 'numeric', 'Position', [155 564 sidebarW-175 22], ...
+    'Value', 40, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+snipLLSCheck = uicheckbox(sidebar, 'Position', [10 538 sidebarW-20 22], 'Text', 'Use LLS transform', 'Value', true);
+snipHandles = [lblSnipIter, snipIterField, snipLLSCheck];
+
+% APLS parameters (visible when Method = APLS), packed two-per-row.
+lblAplsGamma = uilabel(sidebar, 'Position', [10 566 55 18], 'Text', 'Gamma:');
+aplsGammaField = uieditfield(sidebar, 'numeric', 'Position', [68 564 95 22], 'Value', 1e5, 'Limits', [0 Inf]);
+lblAplsOrder = uilabel(sidebar, 'Position', [175 566 55 18], 'Text', 'Diff ord:');
+aplsOrderField = uieditfield(sidebar, 'numeric', 'Position', [233 564 sidebarW-253 22], ...
+    'Value', 2, 'Limits', [1 2], 'RoundFractionalValues', 'on');
+lblAplsIter = uilabel(sidebar, 'Position', [10 538 70 18], 'Text', 'Max iter:');
+aplsIterField = uieditfield(sidebar, 'numeric', 'Position', [85 536 100 22], ...
+    'Value', 10, 'Limits', [1 Inf], 'RoundFractionalValues', 'on');
+aplsHandles = [lblAplsGamma, aplsGammaField, lblAplsOrder, aplsOrderField, lblAplsIter, aplsIterField];
+
+set([backcorHandles, snipHandles, aplsHandles], 'Visible', 'off');  % default method is airPLS
+
+smoothCheck = uicheckbox(sidebar, 'Position', [10 482 sidebarW-20 22], 'Text', 'Savitzky-Golay smoothing', 'Value', true);
+uilabel(sidebar, 'Position', [10 454 70 18], 'Text', 'Normalize:');
+normalizeDD = uidropdown(sidebar, 'Position', [90 452 sidebarW-110 22], ...
     'Items', {'Area','Max','SNV','None'}, 'Value', 'Area');
 
 % ---- Sidebar: Clustering --------------------------------------------------
-uilabel(sidebar, 'Position', [10 472 sidebarW-20 18], 'Text', 'Clustering:', 'FontWeight', 'bold');
-autoKCheck = uicheckbox(sidebar, 'Position', [10 446 sidebarW-20 22], ...
+uilabel(sidebar, 'Position', [10 418 sidebarW-20 18], 'Text', 'Clustering:', 'FontWeight', 'bold');
+autoKCheck = uicheckbox(sidebar, 'Position', [10 392 sidebarW-20 22], ...
     'Text', 'Choose k automatically (silhouette, 2-8)', 'Value', false, ...
     'ValueChangedFcn', @(s,e) onAutoKChanged());
-uilabel(sidebar, 'Position', [10 418 100 18], 'Text', 'Number of clusters k:');
-kField = uieditfield(sidebar, 'numeric', 'Position', [140 416 sidebarW-160 22], 'Value', 3, 'Limits', [2 20], 'RoundFractionalValues', 'on');
-ellipseCheck = uicheckbox(sidebar, 'Position', [10 386 sidebarW-20 22], ...
+uilabel(sidebar, 'Position', [10 364 100 18], 'Text', 'Number of clusters k:');
+kField = uieditfield(sidebar, 'numeric', 'Position', [140 362 sidebarW-160 22], 'Value', 3, 'Limits', [2 20], 'RoundFractionalValues', 'on');
+ellipseCheck = uicheckbox(sidebar, 'Position', [10 332 sidebarW-20 22], ...
     'Text', 'Show confidence ellipses (80/85/90%)', 'Value', false, ...
     'ValueChangedFcn', @(s,e) onEllipseCheckChanged());
 
-runBtn = uibutton(sidebar, 'push', 'Position', [10 344 sidebarW-20 34], ...
+runBtn = uibutton(sidebar, 'push', 'Position', [10 290 sidebarW-20 34], ...
     'Text', 'Run analysis', 'FontWeight', 'bold', 'Enable', 'off', ...
     'ButtonPushedFcn', @(s,e) onRunAnalysis());
 % Separate from STATUSLABEL (which reports the more detailed step-by-step
@@ -87,12 +134,12 @@ runBtn = uibutton(sidebar, 'push', 'Position', [10 344 sidebarW-20 34], ...
 % after just tweaking a parameter -- otherwise the plots still showing
 % the PREVIOUS run's results could easily be mistaken for the new ones
 % while the (possibly slow) computation is still in progress.
-runningLabel = uilabel(sidebar, 'Position', [10 316 sidebarW-20 18], ...
+runningLabel = uilabel(sidebar, 'Position', [10 262 sidebarW-20 18], ...
     'Text', '', 'FontWeight', 'bold', 'FontColor', [0.85 0.35 0], 'HorizontalAlignment', 'center');
 
 % ---- Sidebar: Export -------------------------------------------------------
-uilabel(sidebar, 'Position', [10 274 sidebarW-20 18], 'Text', 'Export:', 'FontWeight', 'bold');
-saveBtn = uibutton(sidebar, 'push', 'Position', [10 244 sidebarW-20 28], ...
+uilabel(sidebar, 'Position', [10 220 sidebarW-20 18], 'Text', 'Export:', 'FontWeight', 'bold');
+saveBtn = uibutton(sidebar, 'push', 'Position', [10 190 sidebarW-20 28], ...
     'Text', 'Save results...', 'Enable', 'off', 'ButtonPushedFcn', @(s,e) onSaveResults());
 
 % ---- Main area: tabbed results ---------------------------------------------
@@ -205,14 +252,41 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
     end
 
 % -------------------------------------------------------------------------
+    function handles = getBaselineMethodHandles(methodName)
+        switch methodName
+            case 'backcor'
+                handles = backcorHandles;
+            case 'airPLS'
+                handles = airplsHandles;
+            case 'SNIP'
+                handles = snipHandles;
+            case 'APLS'
+                handles = aplsHandles;
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onBaselineMethodChanged()
+        set(backcorHandles, 'Visible', 'off');
+        set(airplsHandles, 'Visible', 'off');
+        set(snipHandles, 'Visible', 'off');
+        set(aplsHandles, 'Visible', 'off');
+        activeHandles = getBaselineMethodHandles(baselineMethodDD.Value);
+        set(activeHandles, 'Visible', 'on');
+        if ~baselineCheck.Value
+            set(activeHandles, 'Enable', 'off');
+        end
+    end
+
+% -------------------------------------------------------------------------
     function onBaselineCheckChanged()
         if baselineCheck.Value
-            baselineLambdaField.Enable = 'on';
-            baselineOrderField.Enable = 'on';
+            state = 'on';
         else
-            baselineLambdaField.Enable = 'off';
-            baselineOrderField.Enable = 'off';
+            state = 'off';
         end
+        baselineMethodDD.Enable = state;
+        set(getBaselineMethodHandles(baselineMethodDD.Value), 'Enable', state);
     end
 
 % -------------------------------------------------------------------------
@@ -251,8 +325,17 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         Xrange = X(:, mask);
 
         opt = struct('Baseline', logical(baselineCheck.Value), ...
+            'BaselineMethod', baselineMethodDD.Value, ...
             'BaselineLambda', baselineLambdaField.Value, ...
             'BaselineOrder', baselineOrderField.Value, ...
+            'BackcorOrder', backcorOrderField.Value, ...
+            'BackcorThreshold', backcorThresholdField.Value, ...
+            'BackcorFct', backcorFctDD.Value, ...
+            'SnipIter', snipIterField.Value, ...
+            'SnipUseLLS', logical(snipLLSCheck.Value), ...
+            'AplsGamma', aplsGammaField.Value, ...
+            'AplsOrder', aplsOrderField.Value, ...
+            'AplsIter', aplsIterField.Value, ...
             'Smooth', logical(smoothCheck.Value), ...
             'Normalize', lower(normalizeDD.Value));
         try
@@ -379,22 +462,34 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 
 % -------------------------------------------------------------------------
     function plotClusters(k)
+    % Colors are assigned explicitly from LINES(...) rather than left to
+    % GSCATTER's own automatic per-axes color cycling: relying on two
+    % different axes (this one and AXMEANSPECTRA in
+    % PLOTLOADINGSANDCLUSTERS) happening to reach the same point in their
+    % own independent ColorOrderIndex cycling is fragile -- it only
+    % looked consistent before because CLA (unlike the FINDALL-based
+    % CLEARAXESFULLY, needed to fix the stale-ellipse bug) happened to
+    % also reset ColorOrderIndex back to 1 on every replot. CLUSTERCOLORS
+    % is stored so PLOTLOADINGSANDCLUSTERS can reuse the exact same
+    % per-cluster colors.
         clearAxesFully(axClustersByGroup); clearAxesFully(axClustersByKmeans);
-        hG = gscatter(axClustersByGroup, score(:,1), score(:,2), labels);
+        groupNames = unique(labels);
+        groupColors = lines(numel(groupNames));
+        hG = gscatter(axClustersByGroup, score(:,1), score(:,2), labels, groupColors);
         xlabel(axClustersByGroup, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByGroup, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByGroup, 'Colored by filename-derived group');
         if ellipseCheck.Value
-            groupNames = unique(labels);
             hold(axClustersByGroup, 'on');
             for gi = 1:numel(groupNames)
                 gmask = strcmp(labels, groupNames{gi});
-                plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), hG(gi).Color);
+                plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), groupColors(gi,:));
             end
             hold(axClustersByGroup, 'off');
         end
 
-        hK = gscatter(axClustersByKmeans, score(:,1), score(:,2), clusterIdx);
+        clusterColors = lines(k);
+        gscatter(axClustersByKmeans, score(:,1), score(:,2), clusterIdx, clusterColors);
         xlabel(axClustersByKmeans, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByKmeans, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByKmeans, sprintf('Colored by k-means cluster (k=%d)', k));
@@ -402,7 +497,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
             hold(axClustersByKmeans, 'on');
             for c = 1:k
                 cmask = clusterIdx == c;
-                plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), hK(c).Color);
+                plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), clusterColors(c,:));
             end
             hold(axClustersByKmeans, 'off');
         end
@@ -503,10 +598,11 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
             meanSpectraAll(c, :) = mean(Xproc(clusterIdx == c, :), 1);
         end
         clusterStep = 1.15 * max(range(meanSpectraAll, 2));
+        clusterColors = lines(k);  % same source PLOTCLUSTERS uses for axClustersByKmeans, so the two tabs agree
         hold(axMeanSpectra, 'on');
         for c = 1:k
             plot(axMeanSpectra, wn, meanSpectraAll(c, :) + (c - 1) * clusterStep, ...
-                'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx == c)));
+                'Color', clusterColors(c,:), 'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx == c)));
         end
         hold(axMeanSpectra, 'off');
         legend(axMeanSpectra, 'Location', 'best');

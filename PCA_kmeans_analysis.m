@@ -109,7 +109,8 @@ gscatter(score(:,1), score(:,2), labels);
 xlabel(sprintf('PC1 (%.1f%%)', explained(1))); ylabel(sprintf('PC2 (%.1f%%)', explained(2)));
 title('Colored by filename-derived group');
 nexttile;
-gscatter(score(:,1), score(:,2), clusterIdx);
+clusterColors = lines(k);  % explicit, so the mean-spectra plot below can reuse the exact same colors
+gscatter(score(:,1), score(:,2), clusterIdx, clusterColors);
 xlabel(sprintf('PC1 (%.1f%%)', explained(1))); ylabel(sprintf('PC2 (%.1f%%)', explained(2)));
 title(sprintf('Colored by k-means cluster (k=%d)', k));
 exportgraphics(fig, fullfile(resultsDir, 'pca_scatter.png'));
@@ -140,7 +141,7 @@ clusterStep = 1.15 * max(range(meanSpectraAll, 2));
 hold on;
 for c = 1:k
     plot(wavenumbers, meanSpectraAll(c, :) + (c - 1) * clusterStep, ...
-        'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx==c)));
+        'Color', clusterColors(c,:), 'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx==c)));
 end
 xlabel('Raman shift (cm^{-1})'); ylabel('Normalized intensity (curves offset for clarity)');
 set(gca, 'YTick', []);

@@ -8,8 +8,8 @@ as a MATLAB script and an interactive App.
 - MATLAB with **Statistics and Machine Learning Toolbox** (`pca`, `kmeans`,
   `silhouette`)
 - **Signal Processing Toolbox** (`sgolayfilt`)
-- No external dependencies beyond MATLAB itself: `airPLS.m` and
-  `readdpt.m` are included in this folder.
+- No external dependencies beyond MATLAB itself: `backcor.m`, `airPLS.m`,
+  `snip.m`, `apls.m`, and `readdpt.m` are included in this folder.
 
 ## Files
 
@@ -25,14 +25,16 @@ as a MATLAB script and an interactive App.
   wavenumber grid; also derives a group label per spectrum from its
   filename (e.g. `CT_P_11b.0.dpt` → `CT_P`), used only for
   validating/plotting the clustering, never for the clustering itself.
-- `preprocessSpectra.m` — baseline removal (airPLS, optional),
-  Savitzky-Golay smoothing (optional), and normalization
-  (area / max / SNV / none).
+- `preprocessSpectra.m` — baseline removal (choice of backcor / airPLS /
+  SNIP / APLS, optional), Savitzky-Golay smoothing (optional), and
+  normalization (area / max / SNV / none) -- the same four baseline
+  methods RamanFitApp offers.
 - `adjustedRandIndex.m` — Adjusted Rand Index between two partitions
   (e.g. k-means clusters vs. filename-derived groups), corrected for
   chance agreement.
-- `airPLS.m`, `readdpt.m` — third-party/personal helper functions, copied
-  in for self-containment (see below).
+- `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m` —
+  third-party/personal helper functions, copied in for self-containment
+  (see below).
 
 ## Pipeline
 
@@ -69,10 +71,23 @@ file in the folder.
 
 ## Included third-party/personal code
 
+- `backcor.m` — V. Mazet et al., "Background removal from spectra by
+  designing and minimising a non-quadratic cost function", Chemometrics
+  and Intelligent Laboratory Systems, 76(2), 121-133 (2005).
+  Implementation: V. Mazet (vincent.mazet@unistra.fr), public domain.
 - `airPLS.m` — Zhang et al., "Baseline correction using adaptive
   iteratively reweighted penalized least squares", Analyst 135(5),
   1138-1146 (2010). Implementation: Zhimin Zhang, Central South
   University (2011), public domain (MATLAB File Exchange).
+- `snip.m` — C. G. Ryan et al., "SNIP, a statistics-sensitive background
+  treatment for the quantitative analysis of PIXE spectra in geoscience
+  applications", Nuclear Instruments and Methods in Physics Research B,
+  34, 396-402 (1988). Implementation: original, from the published
+  algorithm description.
+- `apls.m` — P. J. Cadusch et al., "Improved methods for fluorescence
+  background subtraction from Raman spectra", J. Raman Spectrosc. 44(11),
+  1587-1595 (2013). Implementation: original, from the published
+  algorithm description.
 - `readdpt.m` — personal library (`myfileutil/`), reads the plain
   two-column `.dpt` spectrum export format.
 
