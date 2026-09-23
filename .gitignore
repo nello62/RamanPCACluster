@@ -1,0 +1,12 @@
+# Experimental data and generated output -- not source, kept local only.
+/Spectra/
+/Results/
+
+# Unrelated pre-existing personal content in this folder.
+/NeuNet/
+*.zip
+
+# Editor/OS junk.
+.DS_Store
+*.asv
+~$*
