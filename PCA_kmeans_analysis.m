@@ -1,4 +1,4 @@
-1%PCA_KMEANS_ANALYSIS  Unsupervised PCA + k-means clustering of the Raman
+%PCA_KMEANS_ANALYSIS  Unsupervised PCA + k-means clustering of the Raman
 %   spectra in Spectra/.
 %
 %   Pipeline: load -> baseline/smooth/normalize -> PCA -> choose k
@@ -115,20 +115,35 @@ title(sprintf('Colored by k-means cluster (k=%d)', k));
 exportgraphics(fig, fullfile(resultsDir, 'pca_scatter.png'));
 
 %% 8. Loadings (which wavenumbers drive PC1/PC2) and per-cluster mean spectra
+% Both plotted as a vertical (waterfall-style) stack, each curve offset
+% by a fixed step so overlapping peaks from different curves don't
+% obscure each other; the Y axis ticks are hidden since the absolute
+% offset position is then arbitrary, not a real intensity/loading value.
 fig = figure('Position', [100 100 900 400]);
 tiledlayout(fig, 1, 2);
 nexttile;
-plot(wavenumbers, coeff(:,1)); hold on;
-plot(wavenumbers, coeff(:,2));
-xlabel('Raman shift (cm^{-1})'); ylabel('Loading');
-legend({'PC1','PC2'}, 'Location', 'best');
+l1 = coeff(:,1)';
+l2 = coeff(:,2)';
+loadingStep = 1.2 * max(range(l1), range(l2));
+plot(wavenumbers, l1, 'DisplayName', 'PC1'); hold on;
+plot(wavenumbers, l2 - loadingStep, 'DisplayName', 'PC2');
+xlabel('Raman shift (cm^{-1})'); ylabel('Loading (curves offset for clarity)');
+set(gca, 'YTick', []);
+legend('Location', 'best');
 title('PCA loadings');
 nexttile;
+meanSpectraAll = zeros(k, numel(wavenumbers));
+for c = 1:k
+    meanSpectraAll(c, :) = mean(Xproc(clusterIdx == c, :), 1);
+end
+clusterStep = 1.15 * max(range(meanSpectraAll, 2));
 hold on;
 for c = 1:k
-    plot(wavenumbers, mean(Xproc(clusterIdx == c, :), 1), 'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx==c)));
+    plot(wavenumbers, meanSpectraAll(c, :) + (c - 1) * clusterStep, ...
+        'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx==c)));
 end
-xlabel('Raman shift (cm^{-1})'); ylabel('Normalized intensity');
+xlabel('Raman shift (cm^{-1})'); ylabel('Normalized intensity (curves offset for clarity)');
+set(gca, 'YTick', []);
 legend('Location', 'best');
 title('Mean spectrum per cluster');
 exportgraphics(fig, fullfile(resultsDir, 'loadings_and_clusters.png'));

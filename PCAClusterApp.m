@@ -23,8 +23,9 @@ spectraDir = '';
 X = []; wavenumbers = []; labels = {}; filenames = {};
 Xproc = []; baselines = [];
 coeff = []; score = []; explained = [];
-clusterIdx = []; contingency = []; ari = [];
+clusterIdx = []; contingency = []; ari = []; k = [];
 kRange = 2:8; wcss = []; meanSil = []; kSilhouette = [];
+scoreReduced = [];
 hasResults = false;
 
 % -------------------------------------------------------------------------
@@ -73,8 +74,11 @@ autoKCheck = uicheckbox(sidebar, 'Position', [10 446 sidebarW-20 22], ...
     'ValueChangedFcn', @(s,e) onAutoKChanged());
 uilabel(sidebar, 'Position', [10 418 100 18], 'Text', 'Number of clusters k:');
 kField = uieditfield(sidebar, 'numeric', 'Position', [140 416 sidebarW-160 22], 'Value', 3, 'Limits', [2 20], 'RoundFractionalValues', 'on');
+ellipseCheck = uicheckbox(sidebar, 'Position', [10 386 sidebarW-20 22], ...
+    'Text', 'Show confidence ellipses (80/85/90%)', 'Value', false, ...
+    'ValueChangedFcn', @(s,e) onEllipseCheckChanged());
 
-runBtn = uibutton(sidebar, 'push', 'Position', [10 372 sidebarW-20 34], ...
+runBtn = uibutton(sidebar, 'push', 'Position', [10 344 sidebarW-20 34], ...
     'Text', 'Run analysis', 'FontWeight', 'bold', 'Enable', 'off', ...
     'ButtonPushedFcn', @(s,e) onRunAnalysis());
 % Separate from STATUSLABEL (which reports the more detailed step-by-step
@@ -83,12 +87,12 @@ runBtn = uibutton(sidebar, 'push', 'Position', [10 372 sidebarW-20 34], ...
 % after just tweaking a parameter -- otherwise the plots still showing
 % the PREVIOUS run's results could easily be mistaken for the new ones
 % while the (possibly slow) computation is still in progress.
-runningLabel = uilabel(sidebar, 'Position', [10 344 sidebarW-20 18], ...
+runningLabel = uilabel(sidebar, 'Position', [10 316 sidebarW-20 18], ...
     'Text', '', 'FontWeight', 'bold', 'FontColor', [0.85 0.35 0], 'HorizontalAlignment', 'center');
 
 % ---- Sidebar: Export -------------------------------------------------------
-uilabel(sidebar, 'Position', [10 302 sidebarW-20 18], 'Text', 'Export:', 'FontWeight', 'bold');
-saveBtn = uibutton(sidebar, 'push', 'Position', [10 272 sidebarW-20 28], ...
+uilabel(sidebar, 'Position', [10 274 sidebarW-20 18], 'Text', 'Export:', 'FontWeight', 'bold');
+saveBtn = uibutton(sidebar, 'push', 'Position', [10 244 sidebarW-20 28], ...
     'Text', 'Save results...', 'Enable', 'off', 'ButtonPushedFcn', @(s,e) onSaveResults());
 
 % ---- Main area: tabbed results ---------------------------------------------
@@ -97,6 +101,7 @@ tabPreprocess = uitab(tg, 'Title', 'Preprocessing');
 tabPCA = uitab(tg, 'Title', 'PCA');
 tabChooseK = uitab(tg, 'Title', 'Choose k');
 tabClusters = uitab(tg, 'Title', 'Clusters');
+tabDendro = uitab(tg, 'Title', 'Dendrogram');
 tabLoadings = uitab(tg, 'Title', 'Loadings');
 
 axPre1 = uiaxes(tabPreprocess, 'Position', [10 10 490 760]);
@@ -117,6 +122,9 @@ title(axClustersByGroup, 'Colored by filename-derived group');
 axClustersByKmeans = uiaxes(tabClusters, 'Position', [510 10 490 760]);
 title(axClustersByKmeans, 'Colored by k-means cluster');
 
+axDendro = uiaxes(tabDendro, 'Position', [10 10 990 760]);
+title(axDendro, 'Hierarchical clustering dendrogram');
+
 axLoadings = uiaxes(tabLoadings, 'Position', [10 10 490 760]);
 title(axLoadings, 'PCA loadings');
 axMeanSpectra = uiaxes(tabLoadings, 'Position', [510 10 490 760]);
@@ -126,17 +134,42 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 %  Callbacks
 % =========================================================================
 
+    function clearAxesFully(ax)
+    % CLA does not delete children whose HANDLEVISIBILITY is 'off' --
+    % confirmed empirically here (and previously in RamanFitApp): the
+    % confidence-ellipse lines in PLOTCLUSTERS are drawn with
+    % HandleVisibility off precisely so they don't clutter the legend,
+    % which means a plain CLA() before each re-plot left them stranded,
+    % re-accumulating on every re-run with a new k. FINDALL, unlike CLA
+    % or FINDOBJ, ignores HandleVisibility, so this actually removes
+    % everything; the axes itself is filtered back out of its own
+    % FINDALL results first so it doesn't get deleted along with them.
+        kids = findall(ax);
+        kids(kids == ax) = [];
+        delete(kids);
+    end
+
+% -------------------------------------------------------------------------
     function onSelectFolder()
         d = uigetdir(pwd, 'Select a folder of .dpt Raman spectra');
         if isequal(d, 0)
             return
         end
+        % Reuses RUNNINGLABEL (see ONRUNANALYSIS) rather than a separate
+        % label: the two are never active at the same time, and both
+        % exist for the same reason -- a prominent "something is
+        % happening" cue, since a folder with many spectra can take a
+        % moment to read.
+        runningLabel.Text = 'Importing files...';
+        drawnow;
         try
             [X, wavenumbers, labels, filenames] = loadRamanSpectra(d);
         catch ME
+            runningLabel.Text = '';
             uialert(fig, ME.message, 'Load error');
             return
         end
+        runningLabel.Text = '';
         spectraDir = d;
         [~, folderName] = fileparts(d);
         lblFolder.Text = sprintf('Folder: %s', folderName);
@@ -179,6 +212,15 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         else
             baselineLambdaField.Enable = 'off';
             baselineOrderField.Enable = 'off';
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function onEllipseCheckChanged()
+    % Cheap enough to just redraw from the results already in memory --
+    % no need to rerun PCA/k-means for a purely cosmetic toggle.
+        if hasResults
+            plotClusters(k);
         end
     end
 
@@ -274,6 +316,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         end
 
         plotClusters(k);
+        plotDendrogram(k);
         plotLoadingsAndClusters(k, wavenumbersUsed);
 
         hasResults = true;
@@ -290,7 +333,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 
 % -------------------------------------------------------------------------
     function plotPreprocessingExample(Xrange, wn)
-        cla(axPre1); cla(axPre2);
+        clearAxesFully(axPre1); clearAxesFully(axPre2);
         plot(axPre1, wn, Xrange(1,:), 'Color', [0.6 0.6 0.6]);
         if baselineCheck.Value
             hold(axPre1, 'on');
@@ -311,7 +354,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 
 % -------------------------------------------------------------------------
     function plotScree()
-        cla(axScree);
+        clearAxesFully(axScree);
         nShow = min(10, numel(explained));
         yyaxis(axScree, 'left');
         bar(axScree, explained(1:nShow));
@@ -325,7 +368,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 
 % -------------------------------------------------------------------------
     function plotChooseK()
-        cla(axElbow); cla(axSil);
+        clearAxesFully(axElbow); clearAxesFully(axSil);
         plot(axElbow, kRange, wcss, '-o');
         xlabel(axElbow, 'k'); ylabel(axElbow, 'Within-cluster sum of squares');
         title(axElbow, 'Elbow plot');
@@ -336,35 +379,140 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
 
 % -------------------------------------------------------------------------
     function plotClusters(k)
-        cla(axClustersByGroup); cla(axClustersByKmeans);
-        gscatter(axClustersByGroup, score(:,1), score(:,2), labels);
+        clearAxesFully(axClustersByGroup); clearAxesFully(axClustersByKmeans);
+        hG = gscatter(axClustersByGroup, score(:,1), score(:,2), labels);
         xlabel(axClustersByGroup, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByGroup, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByGroup, 'Colored by filename-derived group');
+        if ellipseCheck.Value
+            groupNames = unique(labels);
+            hold(axClustersByGroup, 'on');
+            for gi = 1:numel(groupNames)
+                gmask = strcmp(labels, groupNames{gi});
+                plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), hG(gi).Color);
+            end
+            hold(axClustersByGroup, 'off');
+        end
 
-        gscatter(axClustersByKmeans, score(:,1), score(:,2), clusterIdx);
+        hK = gscatter(axClustersByKmeans, score(:,1), score(:,2), clusterIdx);
         xlabel(axClustersByKmeans, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByKmeans, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByKmeans, sprintf('Colored by k-means cluster (k=%d)', k));
+        if ellipseCheck.Value
+            hold(axClustersByKmeans, 'on');
+            for c = 1:k
+                cmask = clusterIdx == c;
+                plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), hK(c).Color);
+            end
+            hold(axClustersByKmeans, 'off');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function plotConfidenceEllipse(ax, x, y, color)
+    % Draws the 80/85/90% confidence ellipses (dotted/dashed/solid) for a
+    % single group of 2D points, assuming a bivariate normal distribution
+    % -- a standard way to visualize how tight/overlapping clusters are
+    % in PC1-PC2 space, beyond just the scatter of points itself.
+    % HANDLEVISIBILITY off so these don't add clutter entries to the
+    % existing per-group/per-cluster legend from GSCATTER.
+        if numel(x) < 3
+            return
+        end
+        mu = [mean(x), mean(y)];
+        C = cov(x, y);
+        [V, D] = eig(C);
+        theta = linspace(0, 2*pi, 100);
+        circle = [cos(theta); sin(theta)];
+        confLevels = [0.80 0.85 0.90];
+        styles = {':', '--', '-'};
+        for i = 1:numel(confLevels)
+            r = sqrt(chi2inv(confLevels(i), 2));
+            pts = mu' + V * sqrt(D) * r * circle;
+            plot(ax, pts(1,:), pts(2,:), styles{i}, 'Color', color, ...
+                'LineWidth', 1.2, 'HandleVisibility', 'off');
+        end
+    end
+
+% -------------------------------------------------------------------------
+    function plotDendrogram(k)
+    % Hierarchical clustering (Ward linkage) on the same PCA scores used
+    % for k-means -- an alternative view of cluster structure that
+    % doesn't require picking k upfront; COLORTHRESHOLD is tuned so the
+    % dendrogram's own coloring lines up with the current k for a
+    % consistent story across tabs, not because k literally means
+    % anything to a dendrogram on its own.
+        clearAxesFully(axDendro);
+        Z = linkage(scoreReduced, 'ward', 'euclidean');
+        nZ = size(Z, 1);
+        if k >= 2 && k <= nZ
+            cutoff = mean(Z(max(nZ-k+1,1):min(nZ-k+2,nZ), 3));
+        else
+            cutoff = 0.7 * max(Z(:,3));
+        end
+        leafLabels = regexprep(filenames, '\.dpt$', '');
+
+        % DENDROGRAM predates UIAXES support and always draws into a
+        % regular figure/GCA, silently ignoring any axes handle passed to
+        % it (confirmed empirically: no error, just nothing drawn where
+        % expected) -- draw into a throwaway invisible figure instead,
+        % then copy the resulting lines and tick setup into AXDENDRO and
+        % discard the temporary figure.
+        tmpFig = figure('Visible', 'off');
+        dendrogram(Z, 0, 'ColorThreshold', cutoff, 'Labels', leafLabels);
+        tmpAx = gca;
+        copyobj(tmpAx.Children, axDendro);
+        axDendro.XTick = tmpAx.XTick;
+        axDendro.XTickLabel = tmpAx.XTickLabel;
+        axDendro.XLim = tmpAx.XLim;
+        axDendro.YLim = tmpAx.YLim;
+        close(tmpFig);
+
+        axDendro.XTickLabelRotation = 90;
+        xlabel(axDendro, 'Spectrum');
+        ylabel(axDendro, 'Ward linkage distance');
+        title(axDendro, sprintf('Hierarchical clustering dendrogram (color threshold tuned for k=%d)', k));
     end
 
 % -------------------------------------------------------------------------
     function plotLoadingsAndClusters(k, wn)
-        cla(axLoadings); cla(axMeanSpectra);
-        plot(axLoadings, wn, coeff(:,1)); hold(axLoadings, 'on');
-        plot(axLoadings, wn, coeff(:,2)); hold(axLoadings, 'off');
-        legend(axLoadings, {'PC1','PC2'}, 'Location', 'best');
-        xlabel(axLoadings, 'Raman shift (cm^{-1})'); ylabel(axLoadings, 'Loading');
+    % Both PCA loadings and per-cluster mean spectra are plotted as a
+    % vertical (waterfall-style) stack, each curve offset by a fixed
+    % step so overlapping peaks from different curves don't obscure each
+    % other -- standard practice for comparing multiple spectra/loadings
+    % at a glance. The absolute Y position is then meaningless (only
+    % arbitrary offsets), so the Y axis ticks are hidden rather than
+    % showing numbers that don't mean anything on their own.
+        clearAxesFully(axLoadings); clearAxesFully(axMeanSpectra);
+
+        l1 = coeff(:,1)';
+        l2 = coeff(:,2)';
+        loadingStep = 1.2 * max(range(l1), range(l2));
+        hold(axLoadings, 'on');
+        plot(axLoadings, wn, l1, 'DisplayName', 'PC1');
+        plot(axLoadings, wn, l2 - loadingStep, 'DisplayName', 'PC2');
+        hold(axLoadings, 'off');
+        legend(axLoadings, 'Location', 'best');
+        xlabel(axLoadings, 'Raman shift (cm^{-1})');
+        ylabel(axLoadings, 'Loading (curves offset for clarity)');
+        axLoadings.YTick = [];
         title(axLoadings, 'PCA loadings');
 
+        meanSpectraAll = zeros(k, numel(wn));
+        for c = 1:k
+            meanSpectraAll(c, :) = mean(Xproc(clusterIdx == c, :), 1);
+        end
+        clusterStep = 1.15 * max(range(meanSpectraAll, 2));
         hold(axMeanSpectra, 'on');
         for c = 1:k
-            plot(axMeanSpectra, wn, mean(Xproc(clusterIdx == c, :), 1), ...
+            plot(axMeanSpectra, wn, meanSpectraAll(c, :) + (c - 1) * clusterStep, ...
                 'DisplayName', sprintf('Cluster %d (n=%d)', c, sum(clusterIdx == c)));
         end
         hold(axMeanSpectra, 'off');
         legend(axMeanSpectra, 'Location', 'best');
-        xlabel(axMeanSpectra, 'Raman shift (cm^{-1})'); ylabel(axMeanSpectra, 'Normalized intensity');
+        xlabel(axMeanSpectra, 'Raman shift (cm^{-1})');
+        ylabel(axMeanSpectra, 'Normalized intensity (curves offset for clarity)');
+        axMeanSpectra.YTick = [];
         title(axMeanSpectra, 'Mean spectrum per cluster');
     end
 
@@ -384,6 +532,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         exportgraphics(axSil, fullfile(d, 'silhouette_plot.png'));
         exportgraphics(axClustersByGroup, fullfile(d, 'clusters_by_filename_group.png'));
         exportgraphics(axClustersByKmeans, fullfile(d, 'clusters_by_kmeans.png'));
+        exportgraphics(axDendro, fullfile(d, 'dendrogram.png'));
         exportgraphics(axLoadings, fullfile(d, 'pca_loadings.png'));
         exportgraphics(axMeanSpectra, fullfile(d, 'mean_spectrum_per_cluster.png'));
 

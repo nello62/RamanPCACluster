@@ -15,7 +15,9 @@ as a MATLAB script and an interactive App.
 
 - `PCAClusterApp.m` — interactive app: pick a folder of `.dpt` spectra,
   set the spectral range, preprocessing, and number of clusters, run the
-  analysis, inspect the results across tabs, and export them.
+  analysis, inspect the results across tabs (including a hierarchical
+  clustering dendrogram, and optional 80/85/90% confidence ellipses on
+  the PCA scatter plots), and export them.
 - `PCA_kmeans_analysis.m` — the same pipeline as a plain script (edit the
   top of the file to point at a different `Spectra/` folder), useful for
   batch/reproducible runs outside the GUI.
@@ -49,6 +51,14 @@ as a MATLAB script and an interactive App.
 7. **Compare** the resulting clusters against each spectrum's
    filename-derived group (contingency table + Adjusted Rand Index) --
    informational only, not used to guide the clustering.
+8. **Dendrogram** (App only): Ward-linkage hierarchical clustering on the
+   same retained PCA scores, as an alternative view of cluster structure
+   that doesn't require picking k upfront; the color threshold is tuned
+   to roughly match the chosen k, for a consistent story across tabs.
+9. **Confidence ellipses** (App only, optional): 80/85/90% confidence
+   ellipses per group, on the PCA scatter plots, assuming a bivariate
+   normal distribution -- a quick visual read on how tight or overlapping
+   the groups/clusters are, beyond the raw scatter of points.
 
 ## Data
 
