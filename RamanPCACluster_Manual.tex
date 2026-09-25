@@ -1,0 +1,828 @@
+\documentclass[11pt,a4paper]{article}
+
+% =============================================================================
+% Packages
+% =============================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage[skins,breakable]{tcolorbox}
+
+\definecolor{codebg}{rgb}{0.95,0.95,0.95}
+\definecolor{notebg}{rgb}{0.93,0.96,0.99}
+\definecolor{notebar}{rgb}{0.20,0.45,0.75}
+
+% -----------------------------------------------------------------------------
+% Code / inline macros
+% -----------------------------------------------------------------------------
+\newcommand{\code}[1]{\texttt{#1}}
+
+% -----------------------------------------------------------------------------
+% MATLAB code listing style
+% -----------------------------------------------------------------------------
+\lstdefinestyle{matlabstyle}{
+  language=Matlab,
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  showstringspaces=false,
+  frame=single,
+  rulecolor=\color{gray!40},
+  xleftmargin=4pt, xrightmargin=4pt,
+  aboveskip=6pt, belowskip=6pt
+}
+\lstset{style=matlabstyle}
+
+% -----------------------------------------------------------------------------
+% Option/field table environments (plain tabular + booktabs), same pattern as
+% the G09/G16 Toolbox Manual and the G_Utility Manual.
+% -----------------------------------------------------------------------------
+\newenvironment{argtable}[6]{%
+  \begin{center}
+  \renewcommand{\arraystretch}{1.25}
+  \setlength{\dimen2}{\dimexpr\textwidth-#4-#5-6\tabcolsep-2\arrayrulewidth\relax}
+  \begin{tabular}{@{}p{#4}p{#5}p{\dimen2}@{}}
+  \toprule
+  \textbf{#1} & \textbf{#2} & \textbf{#3} \\
+  \midrule
+}{%
+  \bottomrule
+  \end{tabular}
+  \end{center}
+}
+
+\newenvironment{argtabletwo}[4]{%
+  \begin{center}
+  \renewcommand{\arraystretch}{1.25}
+  \setlength{\dimen2}{\dimexpr\textwidth-#3-4\tabcolsep-2\arrayrulewidth\relax}
+  \begin{tabular}{@{}p{#3}p{\dimen2}@{}}
+  \toprule
+  \textbf{#1} & \textbf{#2} \\
+  \midrule
+}{%
+  \bottomrule
+  \end{tabular}
+  \end{center}
+}
+
+% -----------------------------------------------------------------------------
+% Note / remark box
+% -----------------------------------------------------------------------------
+\newtcolorbox{tbnote}{
+  enhanced, breakable,
+  colback=notebg, colframe=notebar,
+  boxrule=0pt, leftrule=2.5pt,
+  arc=0pt, outer arc=0pt,
+  left=8pt, right=8pt, top=6pt, bottom=6pt,
+  before skip=8pt, after skip=8pt
+}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=notebar,
+  urlcolor=notebar,
+  citecolor=notebar
+}
+
+% =============================================================================
+\title{\textbf{RamanPCACluster}\\[4pt]
+       \large An interactive app for unsupervised and supervised\\
+       classification of Raman spectra}
+\author{Sebastiano Trusso \\ CNR -- Istituto per i Processi Chimico-Fisici (IPCF), Messina, Italy}
+\date{Version 1.0 --- 2026}
+
+% =============================================================================
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{Introduction}
+% =============================================================================
+\code{RamanPCACluster} is a self-contained MATLAB app (\code{PCAClusterApp.m}, with
+a plain-script equivalent \code{PCA\_kmeans\_analysis.m} for batch/reproducible
+runs) that takes a folder of Raman spectra and asks two related questions:
+
+\begin{itemize}
+  \item \textbf{Unsupervised:} does the data contain natural groupings at all,
+  and if so, how many, and along which spectral features?
+  \item \textbf{Supervised:} if the spectra also carry an externally known
+  label (here, derived from each file's name -- e.g.\ the sampling site),
+  how well does that particular grouping hold up statistically? Is it
+  actually distinguishable from the spectra, or not?
+\end{itemize}
+
+The first question is answered by Principal Component Analysis (PCA),
+$k$-means clustering, and Ward-linkage hierarchical clustering. The second is
+answered by Linear Discriminant Analysis (LDA) with cross-validation. Both
+paths share the same preprocessing (baseline removal, smoothing,
+normalization) and the same dimensionality-reduced input (PCA scores), so
+their results are directly comparable: a low Adjusted Rand Index between
+$k$-means clusters and the known labels, \emph{together with} a low LDA
+cross-validated accuracy, is good evidence that the known labels do not
+correspond to a real chemical/spectral distinction in the data -- as opposed
+to $k$-means simply having picked the wrong $k$ or the wrong features.
+
+\begin{tbnote}
+This manual documents the app's interface and gives a brief, self-contained
+account of the theory behind each analysis step. It assumes no prior
+familiarity with machine learning; readers already comfortable with PCA,
+clustering, and LDA can skip directly to \S\ref{sec:gui} for the interface,
+or \S\ref{sec:outputs} for the output file formats.
+\end{tbnote}
+
+% =============================================================================
+\section{Requirements}
+% =============================================================================
+\begin{itemize}
+  \item MATLAB with the \textbf{Statistics and Machine Learning Toolbox}
+  (\code{pca}, \code{kmeans}, \code{silhouette}, \code{linkage},
+  \code{dendrogram}, \code{fitcdiscr}, \code{crossval}).
+  \item The \textbf{Signal Processing Toolbox} (\code{sgolayfilt}).
+  \item No external dependencies beyond MATLAB itself: \code{backcor.m},
+  \code{airPLS.m}, \code{snip.m}, \code{apls.m}, and \code{readdpt.m} are
+  included alongside the app for self-containment.
+\end{itemize}
+
+% =============================================================================
+\section{Data format}
+% =============================================================================
+The app reads every \code{.dpt} file in a chosen folder: two comma-separated
+columns (Raman shift in cm$^{-1}$, intensity), no header. All spectra in the
+folder must share the same wavenumber grid -- spectra are stacked directly
+into a matrix rather than interpolated, so a file recorded on a different
+grid raises an error instead of silently corrupting the comparison.
+
+A group label is derived from each file name for later validation/plotting
+only (it never influences the unsupervised steps): everything before the
+underscore that introduces the sample identifier, itself always starting
+with a digit -- e.g.\ \code{CT\_P\_11b.0.dpt} $\to$ \code{CT\_P},
+\code{Paradiso\_31-nonpellet.0.dpt} $\to$ \code{Paradiso}. This is tolerant of
+irregularly-formatted sample identifiers, which real-world file names
+frequently contain.
+
+% =============================================================================
+\section{Getting started}
+% =============================================================================
+\begin{enumerate}
+  \item Launch the app: \code{PCAClusterApp} at the MATLAB prompt.
+  \item Click \textbf{Select spectra folder...} and choose the folder
+  containing the \code{.dpt} files.
+  \item Optionally narrow the \textbf{spectral range}, adjust
+  \textbf{preprocessing} (baseline method and parameters, smoothing,
+  normalization), and set the \textbf{number of clusters} $k$ (or let the
+  app choose it automatically via the silhouette criterion).
+  \item Click \textbf{Run analysis}. Results appear across the tabs on the
+  right as each step completes.
+  \item Click \textbf{Save results...} to export every plot as a PNG, the
+  per-spectrum cluster assignments as a CSV, and all numeric results as a
+  \code{.mat} file, into a folder of your choice.
+\end{enumerate}
+
+% =============================================================================
+\section{Graphical user interface}
+\label{sec:gui}
+% =============================================================================
+The window is split into a left sidebar (data selection and analysis
+settings) and a tabbed results area on the right, plus a status bar along the
+bottom that reports the current step and a one-line summary once the run
+completes.
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Data}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Select spectra folder...} & Opens a folder picker; loads every
+\code{.dpt} file inside and reports the spectrum count. Shows
+``Importing files...'' while reading, since a large folder can take a
+moment. \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Spectral range}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Min} / \code{Max} & Restricts the analysis to a sub-range of the
+wavenumber axis (cm$^{-1}$), e.g.\ to exclude a noisy edge or focus on a
+region of chemical interest. \\
+\code{Full range} & Resets Min/Max to the full wavenumber span of the
+loaded spectra. \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Preprocessing}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Subtract baseline} & Enables/disables fluorescence-background
+removal (\S\ref{sec:baseline}). \\
+\code{Method} & Baseline algorithm: \code{backcor}, \code{airPLS},
+\code{SNIP}, or \code{APLS} (\S\ref{sec:baseline}), each with its own
+parameter fields shown below the dropdown. \\
+\code{Savitzky-Golay smoothing} & Enables/disables local polynomial
+smoothing (\S\ref{sec:smoothing}). \\
+\code{Normalize} & \code{Area} (unit total intensity), \code{Max} (unit
+peak height), \code{SNV} (standard normal variate), or \code{None}
+(\S\ref{sec:normalize}). \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Clustering}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Choose k automatically} & Selects $k$ by maximizing mean silhouette
+over $k=2,\dots,8$ (\S\ref{sec:choosek}), rather than using the fixed value
+below. \\
+\code{Number of clusters k} & Fixed number of $k$-means clusters, used
+when automatic selection is off. \\
+\code{Show confidence ellipses} & Overlays 80/85/90\% bivariate-normal
+confidence ellipses (\S\ref{sec:ellipses}) on both PC1-PC2 scatter plots. \\
+\code{Run analysis} & Executes the full pipeline (\S\ref{sec:pipeline})
+and populates every results tab. \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Reference library}
+\label{sec:sidebar-references}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Overlay reference spectra} & When checked, projects the loaded
+reference library into the current PCA space and overlays it on both
+PC1-PC2 scatter plots (\S\ref{sec:references}) at the next
+\code{Run analysis}. Off by default. \\
+\code{Select reference folder...} & Picks a folder of reference spectra
+(flat \code{.txt} files, two columns, own native wavenumber grid per
+file). A \code{SLoPP} folder next to the app, if present, is loaded
+automatically at startup as the default. \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Sidebar: Export}
+% -----------------------------------------------------------------------------
+\begin{argtabletwo}{Control}{Description}{3.2cm}{X}
+\code{Save results...} & Exports every plot (PNG), the per-spectrum
+cluster table (CSV), and all numeric results (\code{.mat}) to a chosen
+folder (\S\ref{sec:outputs}). \\
+\end{argtabletwo}
+
+% -----------------------------------------------------------------------------
+\subsection{Results tabs}
+% -----------------------------------------------------------------------------
+\begin{itemize}
+  \item \textbf{Preprocessing} -- one example spectrum before/after
+  baseline removal, smoothing, and normalization.
+  \item \textbf{PCA} -- scree plot (per-component and cumulative explained
+  variance).
+  \item \textbf{Choose k} -- elbow plot (within-cluster sum of squares) and
+  silhouette analysis over $k=2,\dots,8$.
+  \item \textbf{Clusters} -- PC1-PC2 scatter, colored by filename-derived
+  group (left) and by $k$-means cluster (right); optional confidence
+  ellipses; optional reference-library overlay (\S\ref{sec:references}),
+  one marker shape per material class.
+  \item \textbf{Dendrogram} -- Ward-linkage hierarchical clustering tree.
+  \item \textbf{LDA} -- canonical discriminant scores (LD1 vs.\ LD2) and
+  the cross-validated confusion matrix.
+  \item \textbf{GMM} -- PC1-PC2 scatter colored by the Gaussian Mixture
+  Model's hard (argmax-posterior) cluster assignment, with each fitted
+  component's own confidence ellipses; and a BIC-vs-number-of-components
+  plot for model selection, with the number of components actually used
+  (same $k$ as $k$-means) marked by a dashed line.
+  \item \textbf{Loadings} -- PC1/PC2 loadings and per-cluster mean spectra,
+  both plotted as an offset (waterfall) stack for readability.
+\end{itemize}
+
+% =============================================================================
+\section{Analysis pipeline}
+\label{sec:pipeline}
+% =============================================================================
+\begin{enumerate}
+  \item \textbf{Load} every \code{.dpt} spectrum in the chosen folder onto a
+  common wavenumber grid.
+  \item \textbf{Restrict} to the chosen spectral range.
+  \item \textbf{Preprocess}: baseline removal (optional, choice of method) +
+  smoothing (optional) + normalization.
+  \item \textbf{PCA}: reduce to the number of principal components needed to
+  explain $\geq 95\%$ of the variance (capped at 10), used as the working
+  representation for every step that follows.
+  \item \textbf{Reference library} (optional, \S\ref{sec:references}):
+  interpolates each reference spectrum onto the analysis grid, preprocesses
+  it identically to the main dataset, and projects it into this same PCA
+  space -- for visual comparison on the \textbf{Clusters} tab only, never
+  fed into PCA/$k$-means/GMM/LDA. A reference whose own measured range does
+  not cover the analysis range is skipped and reported.
+  \item \textbf{Choose $k$}: elbow and silhouette analysis over
+  $k = 2,\dots,8$.
+  \item \textbf{$k$-means} on the retained PCA scores, with the fixed or
+  silhouette-suggested $k$.
+  \item \textbf{Compare} the resulting clusters against the filename-derived
+  groups (contingency table and Adjusted Rand Index) -- informational only,
+  never used to guide the unsupervised clustering itself.
+  \item \textbf{Dendrogram}: Ward-linkage hierarchical clustering on the same
+  retained PCA scores, as an alternative view that does not require choosing
+  $k$ upfront.
+  \item \textbf{LDA} (supervised, requires $\geq 2$ filename-derived groups):
+  canonical discriminant scores plus cross-validated classification accuracy
+  and confusion matrix, answering how separable the known groups actually
+  are by any method -- not just how they happen to fall out of $k$-means.
+  \item \textbf{GMM} (unsupervised, soft-clustering alternative): a Gaussian
+  Mixture Model fitted by Expectation-Maximization on the same retained PCA
+  scores, at the same $k$ as $k$-means, for a direct comparison; also
+  reports the Adjusted Rand Index between the two partitions, and scans
+  $k=1,\dots,8$ components to report each fit's BIC as an independent
+  model-selection diagnostic.
+  \item \textbf{Confidence ellipses} (optional): 80/85/90\% ellipses per
+  group/cluster on the PCA scatter plots.
+\end{enumerate}
+
+\newpage
+% =============================================================================
+\section{Theoretical background}
+% =============================================================================
+
+% -----------------------------------------------------------------------------
+\subsection{Baseline removal}
+\label{sec:baseline}
+% -----------------------------------------------------------------------------
+Raman spectra of real samples typically sit on top of a smoothly-varying
+fluorescence background. All four methods below estimate that background
+$z$ from the raw spectrum $y$ and work by iteratively fitting a smooth curve
+that is biased to stay \emph{below} the peaks -- the ways they achieve that
+bias, and the smoothness they assume, are what distinguish them.
+
+\paragraph{backcor \cite{Mazet2005}.} Fits a polynomial $z$ of a chosen
+order to $y$, but instead of ordinary least squares it minimizes a
+non-quadratic, asymmetric cost function of the residual $r = y - z$ that
+penalizes positive residuals (points above the fit, i.e.\ peaks) more gently
+than negative ones, so the fit is pulled down toward the lower envelope of
+the spectrum. Four cost functions are available (\code{sh}, \code{ah},
+\code{stq}, \code{atq}), differing in how sharply that asymmetry is applied;
+the fit is refined iteratively until convergence.
+
+\paragraph{airPLS \cite{Zhang2010}.} Adaptive Iteratively Reweighted
+Penalized Least Squares: at each iteration, $z$ minimizes
+\[
+  \sum_i w_i (y_i - z_i)^2 \;+\; \lambda \sum_i \big(\Delta^d z\big)_i^2 ,
+\]
+a weighted residual term plus a roughness penalty on the $d$-th order
+discrete derivative of $z$ (larger $\lambda$ forces a smoother baseline).
+Weights $w_i$ start uniform and are then reduced for points where $y_i>z_i$
+(candidate peaks), so subsequent iterations fit the baseline increasingly
+around the peaks rather than through them.
+
+\paragraph{SNIP \cite{Ryan1988}.} Statistics-sensitive Non-linear Iterative
+Peak-clipping: starting from $y$, repeatedly applies
+\[
+  y_i \leftarrow \min\!\big(y_i,\; \tfrac{1}{2}(y_{i-M}+y_{i+M})\big)
+\]
+with a clipping window $M$ that is increased across iterations, which
+progressively clips any point sitting above the local average of its
+neighbors at that scale -- peaks get clipped down, smooth background does
+not. An optional log-log-square-root (LLS) transform is applied before
+clipping and inverted afterward, which compresses the dynamic range and
+improves clipping of low-intensity peaks sitting on a high background.
+
+\paragraph{APLS \cite{Cadusch2013}.} A further asymmetric penalized
+least-squares variant tuned for fluorescence backgrounds under Poisson
+(shot-noise) statistics, with its own asymmetric weighting scheme distinct
+from airPLS's.
+
+Only \code{airPLS} accepts the whole spectrum matrix in one call; the other
+three are applied one spectrum at a time.
+
+% -----------------------------------------------------------------------------
+\subsection{Smoothing}
+\label{sec:smoothing}
+% -----------------------------------------------------------------------------
+Savitzky-Golay smoothing (\code{sgolayfilt}) fits a low-order polynomial by
+least squares within a sliding window centered on each point, and replaces
+that point with the polynomial's value there. Unlike a moving average, it
+tends to preserve peak height and width fairly well while still suppressing
+high-frequency noise, which matters here since peak position/shape feeds
+directly into the PCA that follows.
+
+% -----------------------------------------------------------------------------
+\subsection{Normalization}
+\label{sec:normalize}
+% -----------------------------------------------------------------------------
+Removes spectrum-to-spectrum differences in overall signal level (laser
+power, acquisition time, sample coupling) that are not chemically
+meaningful, so that PCA is not simply driven by intensity scale:
+\begin{itemize}
+  \item \textbf{Area}: divide by $\int y\, d\tilde\nu$ (unit total
+  intensity).
+  \item \textbf{Max}: divide by $\max(y)$ (unit peak height).
+  \item \textbf{SNV} (Standard Normal Variate): $(y-\bar y)/\mathrm{std}(y)$,
+  zero mean and unit variance per spectrum.
+  \item \textbf{None}: no normalization.
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\subsection{Principal Component Analysis (PCA)}
+\label{sec:pca}
+% -----------------------------------------------------------------------------
+PCA re-expresses each (preprocessed) spectrum, a point in a
+high-dimensional space with one axis per wavenumber, in a new orthogonal
+basis chosen so that the first axis (PC1) captures as much of the
+spectrum-to-spectrum variance as possible, the second (PC2) captures as much
+of the \emph{remaining} variance as possible while staying orthogonal to
+PC1, and so on. Formally, with $X$ the (mean-centered) $n_{\text{spectra}}
+\times n_{\text{points}}$ data matrix, PCA is the eigendecomposition of the
+covariance matrix $\tfrac{1}{n-1}X^\top X = V\Lambda V^\top$: the columns of
+$V$ are the \emph{loadings} (which wavenumbers drive each component), the
+projections $\text{score} = XV$ are each spectrum's coordinates in the new
+basis, and the eigenvalues $\Lambda$ give the variance -- hence the
+\emph{explained variance percentage} -- captured by each component.
+
+In this app, PCA serves as dimensionality reduction: only the leading
+components needed to explain $\geq 95\%$ of the total variance (capped at
+10) are kept for every downstream step ($k$-means, the dendrogram, LDA),
+both to reduce noise from the long tail of high-order components and
+because several of those downstream methods need more samples than
+features to behave well.
+
+% -----------------------------------------------------------------------------
+\subsection{$k$-means clustering}
+\label{sec:kmeans}
+% -----------------------------------------------------------------------------
+Given the PCA scores and a chosen number of clusters $k$, $k$-means
+partitions the spectra into $k$ groups so as to minimize the total
+within-cluster sum of squared distances to each cluster's own centroid,
+\[
+  \arg\min_{\{C_1,\dots,C_k\}} \sum_{j=1}^k \sum_{\mathbf{x}\in C_j}
+  \lVert \mathbf{x} - \boldsymbol{\mu}_j \rVert^2 ,
+\]
+solved by Lloyd's algorithm (alternating between assigning each point to its
+nearest current centroid, and recomputing centroids as the mean of their
+assigned points) until convergence. Since Lloyd's algorithm can settle into
+a poor local minimum depending on its random starting centroids, the app
+runs many replicates (independent random restarts) and keeps the one with
+the lowest total within-cluster distance. $k$-means is entirely
+unsupervised: the filename-derived group labels play no role in it.
+
+% -----------------------------------------------------------------------------
+\subsection{Choosing $k$: elbow and silhouette}
+\label{sec:choosek}
+% -----------------------------------------------------------------------------
+Since $k$-means requires $k$ as an input, two standard diagnostics are
+computed over a range of candidate values ($k=2,\dots,8$):
+
+\paragraph{Elbow plot.} The within-cluster sum of squares (WCSS) always
+decreases as $k$ increases (more clusters can only fit the data at least as
+well), but typically with diminishing returns past the ``true'' number of
+groups -- the elbow, the point where adding another cluster stops buying
+much improvement, is a visual (not automatic) heuristic for $k$.
+
+\paragraph{Silhouette analysis.} For each point $i$, let $a(i)$ be its mean
+distance to the other points in its own cluster (cohesion) and $b(i)$ its
+mean distance to the points of the \emph{nearest other} cluster (separation);
+its silhouette is
+\[
+  s(i) = \frac{b(i)-a(i)}{\max\big(a(i),\,b(i)\big)} \in [-1,1] ,
+\]
+close to $+1$ for a point that fits its own cluster well and far from
+others, close to $0$ on a cluster boundary, and negative if it would fit
+better in a different cluster. The app's ``choose $k$ automatically'' option
+picks the $k$ that maximizes the mean silhouette across all points.
+
+% -----------------------------------------------------------------------------
+\subsection{Hierarchical clustering and dendrograms}
+\label{sec:dendrogram}
+% -----------------------------------------------------------------------------
+Agglomerative hierarchical clustering builds a tree (dendrogram) bottom-up:
+starting with every spectrum as its own cluster, it repeatedly merges the
+two clusters whose merger increases the total within-cluster variance the
+least (Ward's linkage criterion), until a single cluster remains. The
+resulting tree height at which any two spectra are joined reflects how
+dissimilar they are; cutting the tree at a given height yields a clustering
+without having to commit to $k$ in advance, since every possible cut is
+visible simultaneously. The app tunes its display's color threshold to
+roughly match the $k$ chosen for $k$-means, purely so the two tabs tell a
+visually consistent story, not because $k$ has any special meaning to the
+dendrogram itself.
+
+% -----------------------------------------------------------------------------
+\subsection{Confidence ellipses}
+\label{sec:ellipses}
+% -----------------------------------------------------------------------------
+For a set of 2D points (a group's or cluster's scores on PC1-PC2), assuming
+they are drawn from a bivariate normal distribution with mean $\boldsymbol\mu$
+and covariance $C$, a confidence ellipse at level $p$ is
+\[
+  \Big\{ \mathbf{x} : (\mathbf{x}-\boldsymbol\mu)^\top C^{-1}
+  (\mathbf{x}-\boldsymbol\mu) \le \chi^2_2(p) \Big\} ,
+\]
+where $\chi^2_2(p)$ is the $p$-quantile of the chi-squared distribution with
+2 degrees of freedom. In practice the ellipse is drawn from the eigenvectors
+and eigenvalues of $C$ (its principal axes and their lengths), scaled by
+$\sqrt{\chi^2_2(p)}$. The app draws the 80\%, 85\%, and 90\% ellipses (dotted,
+dashed, solid) as a quick visual read on how tight or overlapping groups/
+clusters are, beyond the raw scatter of points -- it is descriptive, not a
+formal hypothesis test.
+
+% -----------------------------------------------------------------------------
+\subsection{Adjusted Rand Index}
+\label{sec:ari}
+% -----------------------------------------------------------------------------
+The Adjusted Rand Index (ARI) measures agreement between two partitions of
+the same $n$ items (here: the $k$-means clusters and the filename-derived
+groups) by counting, over all $\binom{n}{2}$ pairs of items, how often the
+two partitions agree on whether a pair is in the same group or not --
+corrected for the level of agreement expected purely by chance:
+\[
+  \text{ARI} = \frac{\text{Index} - \text{Expected Index}}
+                     {\text{Max Index} - \text{Expected Index}} ,
+\]
+computed from the contingency table between the two partitions. ARI $=1$
+means the two partitions agree perfectly (up to a relabeling of cluster/group
+names); ARI $\approx 0$ means the agreement is no better than a random
+partition of the same sizes; ARI can go slightly negative for systematically
+worse-than-random agreement. Since $k$-means never sees the filename-derived
+labels, a low ARI does not mean the clustering failed -- it means the
+groups implied by file name and the groups implied by spectral shape do not
+coincide.
+
+% -----------------------------------------------------------------------------
+\subsection{Linear Discriminant Analysis (LDA)}
+\label{sec:lda}
+% -----------------------------------------------------------------------------
+Unlike everything above, LDA is \emph{supervised}: it requires a known class
+label per spectrum (here, the filename-derived group) and asks a different
+question -- not ``what structure exists in the data on its own,'' but
+``how well can these particular, already-known classes be told apart?''
+
+\paragraph{Canonical discriminant scores.} With $C$ classes, define the
+within-class scatter $S_w = \sum_{c=1}^{C}\sum_{\mathbf{x}\in
+\text{class }c}(\mathbf{x}-\boldsymbol\mu_c)(\mathbf{x}-\boldsymbol\mu_c)^\top$
+and the between-class scatter $S_b = \sum_{c=1}^C n_c
+(\boldsymbol\mu_c-\boldsymbol\mu)(\boldsymbol\mu_c-\boldsymbol\mu)^\top$,
+where $\boldsymbol\mu_c$ and $n_c$ are class $c$'s mean and size and
+$\boldsymbol\mu$ the overall mean. LDA finds projection directions
+$\mathbf{v}$ that maximize the ratio of between-class to within-class
+variance,
+\[
+  \arg\max_{\mathbf v} \frac{\mathbf{v}^\top S_b \mathbf{v}}
+                             {\mathbf{v}^\top S_w \mathbf{v}} ,
+\]
+solved as the generalized eigenvalue problem $S_b\mathbf{v} =
+\lambda S_w \mathbf{v}$. There are at most $C-1$ non-trivial solutions
+(discriminant axes LD1, LD2, \dots), ranked by eigenvalue -- the fraction of
+between-class variance each one explains is reported analogously to PCA's
+explained variance. Because $S_w$ is singular whenever there are more
+features than samples (true of raw spectra almost always), this app runs
+LDA on the same reduced PCA scores used for $k$-means, not on raw spectra.
+
+\paragraph{Cross-validated classification accuracy.} The discriminant
+scores above are useful for visualization, but a good-looking 2D separation
+between classes does not by itself prove the classes are really
+distinguishable (an LDA projection is chosen \emph{specifically} to
+maximize apparent separation, so it can overstate how separable held-out
+data would actually be). The app therefore also fits a discriminant
+classifier (\code{fitcdiscr}) and evaluates it by $k$-fold cross-validation:
+the data is split into $k$ folds, and for each fold in turn the classifier
+is trained on the other $k-1$ folds and used to predict the held-out fold,
+which it never saw during training. The fraction of correct predictions
+across all folds is the cross-validated accuracy, and the resulting
+predictions across all folds are assembled into a confusion matrix (rows:
+true class; columns: predicted class), showing not just overall accuracy
+but which specific classes are most often confused with which. The number
+of folds is capped at the smallest class's own sample count, so no fold
+ends up missing an entire class entirely.
+
+\begin{tbnote}
+\textbf{Reading ARI and LDA accuracy together.} A low ARI only says
+$k$-means did not happen to reconstruct the known groups -- it leaves open
+whether a smarter unsupervised method might, or whether the groups are
+supervised-separable at all. A \emph{correspondingly} low cross-validated
+LDA accuracy (i.e.\ not much better than $1/C$, chance level for $C$
+balanced classes) closes that gap: it means that even a method built and
+cross-validated \emph{specifically} to separate the known classes cannot do
+so reliably, which is much stronger evidence that the known grouping does
+not correspond to a real, consistent spectral/chemical distinction in the
+data -- as opposed to merely being missed by $k$-means's particular choice
+of $k$ or distance metric.
+\end{tbnote}
+
+% -----------------------------------------------------------------------------
+\subsection{Gaussian Mixture Models (GMM)}
+\label{sec:gmm}
+% -----------------------------------------------------------------------------
+Like $k$-means, a Gaussian Mixture Model is unsupervised -- it never sees
+the filename-derived labels -- but it relaxes two assumptions $k$-means
+makes implicitly. First, $k$-means assigns each point to exactly one
+cluster; a GMM instead models the data as a weighted sum of $k$ Gaussian
+components and assigns each point a full \emph{posterior probability} of
+belonging to each one (\emph{soft} clustering). Second, $k$-means'
+distance-to-centroid objective implicitly assumes every cluster is round
+and similarly sized (equivalent to a GMM with equal, spherical, isotropic
+covariances); a GMM instead fits each component's own mean
+\emph{and} covariance matrix freely, so it can represent elongated or
+correlated clusters that $k$-means would otherwise split or merge
+incorrectly.
+
+\paragraph{The mixture model.} The density of a point $\mathbf{x}$ (here, a
+spectrum's retained PCA scores) is modeled as
+\[
+  p(\mathbf{x}) = \sum_{c=1}^k \pi_c\, \mathcal{N}(\mathbf{x};
+  \boldsymbol\mu_c, \Sigma_c) ,
+  \qquad \sum_{c=1}^k \pi_c = 1,\ \ \pi_c \ge 0 ,
+\]
+where $\mathcal{N}(\cdot;\boldsymbol\mu_c,\Sigma_c)$ is the multivariate
+normal density of component $c$ and $\pi_c$ its mixing proportion (the
+overall fraction of the data it accounts for). The parameters
+$\{\pi_c,\boldsymbol\mu_c,\Sigma_c\}_{c=1}^k$ are fitted by maximum
+likelihood via the Expectation-Maximization (EM) algorithm, alternating
+between two steps until convergence:
+\begin{itemize}[nosep]
+  \item \textbf{E-step}: given the current parameters, compute each
+  point's posterior (responsibility) for each component,
+  \[
+    \gamma_{ic} = P(c \mid \mathbf{x}_i) =
+    \frac{\pi_c\, \mathcal{N}(\mathbf{x}_i;\boldsymbol\mu_c,\Sigma_c)}
+         {\sum_{c'=1}^k \pi_{c'}\, \mathcal{N}(\mathbf{x}_i;\boldsymbol\mu_{c'},\Sigma_{c'})} ;
+  \]
+  \item \textbf{M-step}: given the responsibilities, re-estimate each
+  component's mean, covariance, and mixing proportion as the
+  responsibility-weighted mean/covariance/fraction of every point.
+\end{itemize}
+Like $k$-means' own alternating scheme, EM can converge to a local optimum
+depending on its starting point, so the app runs several replicates and
+keeps the highest-likelihood fit; a small regularization term is added to
+each $\Sigma_c$ to keep it invertible when a component ends up with few or
+nearly collinear points assigned to it. The app fits the GMM at the
+\emph{same} $k$ as $k$-means (for a direct, like-for-like comparison) and
+reports the two methods' Adjusted Rand Index (Sec.~\ref{sec:ari}) as a
+measure of how much they actually agree, rather than assuming they do.
+
+\paragraph{Hard assignment and confidence.} For visualization and for
+comparison against $k$-means' own hard labels, each point is also assigned
+to its most probable component, $\hat c_i = \arg\max_c \gamma_{ic}$; the
+GMM tab reports the mean of $\max_c \gamma_{ic}$ across all points as a
+one-number summary of how ``soft'' the fit actually turned out to be on
+this data -- close to 1 means the components are cleanly separated (points
+are confidently assigned), close to $1/k$ means many points sit
+ambiguously between components. The ellipses drawn on the GMM scatter plot
+use the same 80/85/90\% construction as Sec.~\ref{sec:ellipses}, but built
+directly from each fitted component's own $\boldsymbol\mu_c,\Sigma_c$
+(marginalized to PC1-PC2) rather than from the empirical covariance of
+whichever points ended up assigned to it -- they show the \emph{model},
+not a post-hoc summary of its output.
+
+\paragraph{Model selection: BIC.} The number of components $k$ is not
+estimated by the EM fit itself (a model with more components can always
+fit the training data at least as well, exactly as WCSS with $k$-means).
+The Bayesian Information Criterion trades off fit quality against model
+complexity,
+\[
+  \mathrm{BIC} = -2\,\ell(\hat\theta) + p \ln n ,
+\]
+where $\ell(\hat\theta)$ is the fitted model's log-likelihood, $p$ its
+number of free parameters (means, covariances, and mixing proportions all
+grow with $k$), and $n$ the number of spectra -- lower BIC is better. The
+app scans $k=1,\dots,8$ components and plots BIC against $k$ alongside the
+GMM scatter, purely as an independent diagnostic (mirroring $k$-means' own
+elbow/silhouette scan in Sec.~\ref{sec:choosek}); the $k$ actually used for
+the fitted model shown is still tied to $k$-means' choice, not
+automatically reset to BIC's minimum.
+
+% -----------------------------------------------------------------------------
+\subsection{Reference-library overlay (out-of-sample PCA projection)}
+\label{sec:references}
+% -----------------------------------------------------------------------------
+Every method above analyzes the loaded spectra as a whole: PCA is fitted on
+them, and $k$-means/GMM/LDA all partition or classify them. A
+\emph{reference library} -- e.g.\ SLoPP/SLoPP-E, a published collection of
+Raman spectra of known plastic/polymer materials \cite{Munno2020} -- serves
+a different purpose: comparing the actual samples against known standards,
+without those standards influencing the analysis in any way. This is
+\emph{out-of-sample projection}: mapping new points into an
+\emph{already-fitted} PCA space, never refitting that space to include them.
+
+\paragraph{Why not just add them to the dataset.} Including reference
+spectra directly in the PCA/clustering input would let them pull the
+principal axes and cluster boundaries toward themselves -- the axes would
+then reflect a mix of ``how the actual samples vary'' and ``how the actual
+samples differ from a large, possibly unrelated, standards library'',
+which is not the question being asked. Keeping them out of the fit and
+only projecting them \emph{afterward} guarantees the PCA space reflects
+the samples alone, with the references mapped into it purely for visual
+reading.
+
+\paragraph{The projection.} PCA's own \textsc{score} output is defined as
+$\text{SCORE} = (X - \bar{\mathbf{x}})\,\text{COEFF}$, where $\bar{\mathbf x}$
+is the analyzed dataset's own mean (row-wise) and \textsc{coeff} its
+loadings (principal axes). A reference spectrum $\mathbf{x}_{\text{ref}}$,
+once preprocessed \emph{identically} to the main dataset (same baseline
+method, smoothing, normalization -- otherwise ``the same PCA space'' would
+not mean the same thing for the two data sets) and interpolated onto the
+exact wavenumber grid the analysis was run on, is mapped into the same
+space by reusing that same mean and those same loadings,
+\[
+  \text{score}_{\text{ref}} = (\mathbf{x}_{\text{ref}} - \bar{\mathbf{x}})\,\text{COEFF} ,
+\]
+\emph{without} re-running \code{pca} on it. Since each reference spectrum
+in a library assembled from many instruments/sessions is generally
+recorded on its own native wavenumber grid (unlike the main dataset, which
+must already share one), it is linearly interpolated onto the analysis
+grid first; a reference whose own measured range does not fully cover the
+analysis range is left out rather than extrapolated, since a baseline or
+peak beyond what was actually measured for that reference cannot be
+inferred reliably.
+
+\paragraph{Display.} Each reference spectrum's file name is parsed for its
+material class (e.g.\ ``Polyethylene 12. Blue Fragment.txt'' $\to$
+``Polyethylene''), and every class is drawn with its own marker shape
+(cycling through a fixed set) and color, with a legend entry -- visually
+distinct from the filename-derived groups' or $k$-means clusters' own
+markers/colors, so a reference point is never mistaken for an actual
+sample.
+
+% =============================================================================
+\section{Output files}
+\label{sec:outputs}
+% =============================================================================
+\textbf{Save results...} exports, into the chosen folder:
+
+\begin{itemize}
+  \item \code{preprocessing\_raw\_and\_baseline.png},
+  \code{preprocessing\_processed.png} -- example spectrum before/after
+  preprocessing.
+  \item \code{scree\_plot.png} -- PCA explained variance.
+  \item \code{elbow\_plot.png}, \code{silhouette\_plot.png} -- $k$ selection
+  diagnostics.
+  \item \code{clusters\_by\_filename\_group.png},
+  \code{clusters\_by\_kmeans.png} -- PC1-PC2 scatter plots.
+  \item \code{dendrogram.png} -- hierarchical clustering tree.
+  \item \code{lda\_scatter.png}, \code{lda\_confusion\_matrix.png} -- LDA
+  results.
+  \item \code{gmm\_scatter.png}, \code{gmm\_bic.png} -- GMM soft-clustering
+  scatter (with component ellipses) and the BIC model-selection scan.
+  \item \code{pca\_loadings.png}, \code{mean\_spectrum\_per\_cluster.png} --
+  waterfall-stacked loadings and per-cluster mean spectra.
+  \item \code{cluster\_assignments.csv} -- one row per spectrum: file name,
+  filename-derived group, $k$-means cluster, GMM cluster (hard assignment),
+  and PC1/PC2/PC3 scores.
+  \item \code{reference\_projections.csv} (only if the reference overlay
+  was used) -- one row per reference spectrum actually shown: name,
+  material class, and its projected PC1/PC2/PC3 scores.
+  \item \code{pca\_kmeans\_results.mat} -- every numeric result (raw and
+  preprocessed data, PCA coefficients/scores/explained variance, cluster
+  assignments, contingency table, Adjusted Rand Index, elbow/silhouette
+  curves, the full LDA output: discriminant scores, explained variance,
+  cross-validated accuracy, confusion matrix, class names; the full GMM
+  output: the fitted \code{gmdistribution} model, hard cluster assignment,
+  posterior probabilities, BIC, the BIC scan across $k=1,\dots,8$, and the
+  Adjusted Rand Index against both $k$-means and the filename-derived
+  groups; and, if used, the reference library's folder, projected scores,
+  material classes, names, and the list of references skipped for not
+  covering the analysis range).
+\end{itemize}
+
+% =============================================================================
+\begin{thebibliography}{9}
+% =============================================================================
+\bibitem{Mazet2005}
+V. Mazet, C. Carteret, D. Brie, J. Idier, B. Humbert, ``Background removal
+from spectra by designing and minimising a non-quadratic cost function,''
+\emph{Chemometrics and Intelligent Laboratory Systems}, 76(2), 121--133
+(2005).
+
+\bibitem{Zhang2010}
+Z.-M. Zhang, S. Chen, Y.-Z. Liang, ``Baseline correction using adaptive
+iteratively reweighted penalized least squares,'' \emph{Analyst}, 135(5),
+1138--1146 (2010).
+
+\bibitem{Ryan1988}
+C. G. Ryan, E. Clayton, W. L. Griffin, S. H. Sie, D. R. Cousens, ``SNIP, a
+statistics-sensitive background treatment for the quantitative analysis of
+PIXE spectra in geoscience applications,'' \emph{Nuclear Instruments and
+Methods in Physics Research B}, 34, 396--402 (1988).
+
+\bibitem{Cadusch2013}
+P. J. Cadusch, M. M. Hlaing, S. A. Wade, S. L. McArthur, P. R. Stoddart,
+``Improved methods for fluorescence background subtraction from Raman
+spectra,'' \emph{Journal of Raman Spectroscopy}, 44(11), 1587--1595 (2013).
+
+\bibitem{Munno2020}
+K. Munno, H. De Frond, B. O'Donnell, C. M. Rochman, ``Increasing the
+accessibility for characterizing microplastics: introducing new
+application-based and spectral libraries of plastic particles (SLoPP and
+SLoPP-E),'' \emph{Analytical Chemistry}, 92(3), 2443--2451 (2020).
+\emph{[Citation as recalled -- please verify page/DOI before relying on
+it in a publication.]}
+
+\end{thebibliography}
+
+\vspace{1cm}
+\noindent\textit{Developed with the assistance of an AI coding tool (Claude,
+Anthropic), under the author's supervision and review.}
+
+\end{document}

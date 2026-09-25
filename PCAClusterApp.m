@@ -6,14 +6,23 @@ function PCAClusterApp()
 %   restrict the spectral range and preprocessing/clustering settings,
 %   then press "Run analysis". Same underlying pipeline as
 %   PCA_kmeans_analysis.m (LOADRAMANSPECTRA, PREPROCESSSPECTRA,
-%   ADJUSTEDRANDINDEX), wrapped in a GUI so the folder, spectral range,
-%   and number of clusters no longer require editing the script.
+%   ADJUSTEDRANDINDEX, RUNLDA, RUNGMM), wrapped in a GUI so the folder,
+%   spectral range, and number of clusters no longer require editing the
+%   script. Alongside k-means, a Gaussian Mixture Model is fitted at the
+%   same k as a soft-clustering alternative (RUNGMM), and LDA as a
+%   supervised check against the filename-derived groups (RUNLDA). A
+%   folder of known-material reference spectra (e.g. the SLoPP/SLoPP-E
+%   plastics library) can optionally be overlaid on the PCA scatter plots
+%   with a distinct marker per material class (LOADREFERENCESPECTRA,
+%   PROJECTREFERENCESPECTRA) -- purely for visual comparison, the
+%   references never take part in PCA/k-means/GMM/LDA themselves.
 %
 %   Requires the Statistics and Machine Learning Toolbox (PCA, KMEANS,
-%   SILHOUETTE) and Signal Processing Toolbox (SGOLAYFILT, via
-%   PREPROCESSSPECTRA).
+%   SILHOUETTE, FITGMDIST, FITCDISCR) and Signal Processing Toolbox
+%   (SGOLAYFILT, via PREPROCESSSPECTRA).
 %
-%   See also LOADRAMANSPECTRA, PREPROCESSSPECTRA, ADJUSTEDRANDINDEX.
+%   See also LOADRAMANSPECTRA, PREPROCESSSPECTRA, ADJUSTEDRANDINDEX, RUNLDA, RUNGMM, ...
+%       LOADREFERENCESPECTRA, PROJECTREFERENCESPECTRA.
 
 % -------------------------------------------------------------------------
 % Session state (nested-function closures share these -- same single-file,
@@ -24,6 +33,11 @@ X = []; wavenumbers = []; labels = {}; filenames = {};
 Xproc = []; baselines = [];
 coeff = []; score = []; explained = [];
 clusterIdx = []; contingency = []; ari = []; k = [];
+ldaScores = []; explainedLDA = []; cvAccuracy = []; ldaConfMat = []; ldaClassNames = {};
+gmmClusterIdx = []; gmmPosterior = []; gmmModel = []; gmmBIC = [];
+gmmBICScan = []; gmmKScan = 1:8; gmmKScanUsed = []; ariGMMvsKmeans = []; ariGMMvsFilename = [];
+refDir = ''; refWN = {}; refIntensity = {}; refClass = {}; refNames = {};
+refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
 kRange = 2:8; wcss = []; meanSil = []; kSilhouette = [];
 scoreReduced = [];
 hasResults = false;
@@ -142,6 +156,20 @@ uilabel(sidebar, 'Position', [10 220 sidebarW-20 18], 'Text', 'Export:', 'FontWe
 saveBtn = uibutton(sidebar, 'push', 'Position', [10 190 sidebarW-20 28], ...
     'Text', 'Save results...', 'Enable', 'off', 'ButtonPushedFcn', @(s,e) onSaveResults());
 
+% ---- Sidebar: Reference library ---------------------------------------------
+% Known-material reference spectra (e.g. the SLoPP/SLoPP-E plastics
+% library), overlaid on the PCA scatter plots with a distinct marker per
+% material class purely for visual comparison -- LOADREFERENCESPECTRA/
+% PROJECTREFERENCESPECTRA keep them completely out of PCA/k-means/GMM/LDA
+% themselves (see ONRUNANALYSIS).
+uilabel(sidebar, 'Position', [10 160 sidebarW-20 18], 'Text', 'Reference library:', 'FontWeight', 'bold');
+refOverlayCheck = uicheckbox(sidebar, 'Position', [10 134 sidebarW-20 22], ...
+    'Text', 'Overlay reference spectra', 'Value', false, ...
+    'ValueChangedFcn', @(s,e) onRefOverlayCheckChanged());
+uibutton(sidebar, 'push', 'Position', [10 100 sidebarW-20 26], ...
+    'Text', 'Select reference folder...', 'ButtonPushedFcn', @(s,e) onSelectReferenceFolder());
+lblRefFolder = uilabel(sidebar, 'Position', [10 78 sidebarW-20 18], 'Text', 'Ref: -', 'FontSize', 11);
+
 % ---- Main area: tabbed results ---------------------------------------------
 tg = uitabgroup(fig, 'Position', [sidebarW+10 40 1400-sidebarW-20 810]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocessing');
@@ -149,6 +177,8 @@ tabPCA = uitab(tg, 'Title', 'PCA');
 tabChooseK = uitab(tg, 'Title', 'Choose k');
 tabClusters = uitab(tg, 'Title', 'Clusters');
 tabDendro = uitab(tg, 'Title', 'Dendrogram');
+tabLDA = uitab(tg, 'Title', 'LDA');
+tabGMM = uitab(tg, 'Title', 'GMM');
 tabLoadings = uitab(tg, 'Title', 'Loadings');
 
 axPre1 = uiaxes(tabPreprocess, 'Position', [10 10 490 760]);
@@ -172,10 +202,36 @@ title(axClustersByKmeans, 'Colored by k-means cluster');
 axDendro = uiaxes(tabDendro, 'Position', [10 10 990 760]);
 title(axDendro, 'Hierarchical clustering dendrogram');
 
+axLDAScatter = uiaxes(tabLDA, 'Position', [10 10 490 760]);
+title(axLDAScatter, 'LD1 vs LD2 (colored by filename-derived group)');
+axLDAConfusion = uiaxes(tabLDA, 'Position', [510 10 490 760]);
+title(axLDAConfusion, 'Cross-validated confusion matrix');
+
+axGMMScatter = uiaxes(tabGMM, 'Position', [10 10 490 760]);
+title(axGMMScatter, 'Colored by GMM component (soft clustering)');
+axGMMBIC = uiaxes(tabGMM, 'Position', [510 10 490 760]);
+title(axGMMBIC, 'Model selection: BIC vs. number of components');
+
 axLoadings = uiaxes(tabLoadings, 'Position', [10 10 490 760]);
 title(axLoadings, 'PCA loadings');
 axMeanSpectra = uiaxes(tabLoadings, 'Position', [510 10 490 760]);
 title(axMeanSpectra, 'Mean spectrum per cluster');
+
+% A "SLoPP" folder next to this file (this project's plastics reference
+% library) is auto-loaded if present, purely as a convenience -- the
+% overlay checkbox above still defaults to off, and any other folder can
+% be picked instead via ONSELECTREFERENCEFOLDER. Silently left unset on
+% failure; the checkbox/button remain fully usable either way.
+defaultRefDir = fullfile(fileparts(mfilename('fullpath')), 'SLoPP');
+if isfolder(defaultRefDir)
+    try
+        [refWN, refIntensity, refClass, refNames] = loadReferenceSpectra(defaultRefDir);
+        refDir = defaultRefDir;
+        lblRefFolder.Text = sprintf('Ref: SLoPP (%d spectra, %d classes)', ...
+            numel(refNames), numel(unique(refClass)));
+    catch
+    end
+end
 
 % =========================================================================
 %  Callbacks
@@ -240,6 +296,32 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         saveBtn.Enable = 'off';
         statusLabel.Text = sprintf('Loaded %d spectra from %s. Set the range/options and press Run analysis.', ...
             size(X, 1), folderName);
+    end
+
+% -------------------------------------------------------------------------
+    function onSelectReferenceFolder()
+        d = uigetdir(spectraDir, 'Select a folder of reference spectra (.txt, two columns each)');
+        if isequal(d, 0)
+            return
+        end
+        try
+            [refWN, refIntensity, refClass, refNames] = loadReferenceSpectra(d);
+        catch ME
+            uialert(fig, ME.message, 'Reference load error');
+            return
+        end
+        refDir = d;
+        [~, folderName] = fileparts(d);
+        lblRefFolder.Text = sprintf('Ref: %s (%d spectra, %d classes)', ...
+            folderName, numel(refNames), numel(unique(refClass)));
+        % A newly picked folder needs a fresh projection into the current
+        % PCA space (if any) before the overlay is correct -- cheapest
+        % way to force that is just re-running the whole analysis, same
+        % as changing any other setting.
+        refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+        if hasResults
+            statusLabel.Text = 'Reference folder changed -- press Run analysis to update the overlay.';
+        end
     end
 
 % -------------------------------------------------------------------------
@@ -308,6 +390,24 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
     end
 
 % -------------------------------------------------------------------------
+    function onRefOverlayCheckChanged()
+    % Unlike the ellipse toggle, REFSCORE is only ever computed inside
+    % ONRUNANALYSIS (it needs that run's own COEFF/Xproc/preprocessing
+    % options) -- so turning the checkbox on after a run that had it off
+    % (or after picking a different reference folder, which clears
+    % REFSCORE) has nothing to redraw yet. Still calls PLOTCLUSTERS
+    % either way: turning the overlay OFF must redraw to remove it, and
+    % turning it ON with a stale/empty REFSCORE is harmless (just no
+    % overlay appears) rather than a silent no-op the user can't explain.
+        if hasResults
+            plotClusters(k);
+        end
+        if refOverlayCheck.Value && isempty(refScore) && ~isempty(refWN)
+            statusLabel.Text = 'Reference overlay enabled -- press Run analysis to compute it for the current settings.';
+        end
+    end
+
+% -------------------------------------------------------------------------
     function onRunAnalysis()
         if isempty(X)
             return
@@ -371,6 +471,22 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         nPCsForClustering = min(max(nPCsFor95, 2), 10);
         scoreReduced = score(:, 1:nPCsForClustering);
 
+        refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+        if refOverlayCheck.Value && ~isempty(refWN)
+            statusLabel.Text = 'Running: projecting reference spectra...';
+            drawnow;
+            % Reuses OPT (same preprocessing as the main dataset) and
+            % COEFF/mean(Xproc) from the fit just above -- references are
+            % mapped INTO this PCA space, never included in fitting it.
+            try
+                [refScore, refClassUsed, refNamesUsed, refSkipped] = projectReferenceSpectra( ...
+                    refWN, refIntensity, refClass, refNames, wavenumbersUsed, opt, mean(Xproc, 1), coeff);
+            catch ME
+                uialert(fig, sprintf('Reference projection failed: %s', ME.message), 'Reference error');
+                refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+            end
+        end
+
         statusLabel.Text = 'Running: choosing k...';
         drawnow;
         rng(1);
@@ -407,8 +523,46 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
             ari = NaN;
         end
 
+        statusLabel.Text = 'Running: LDA...';
+        drawnow;
+        % LDA is supervised (needs >=2 known groups), unlike everything
+        % else in this pipeline -- skipped with an explanatory plot if
+        % the filename-derived grouping doesn't supply that.
+        if numel(groupNames) > 1
+            [ldaScores, explainedLDA, cvAccuracy, ldaConfMat, ldaClassNames] = runLDA(scoreReduced, labels);
+        else
+            ldaScores = []; explainedLDA = []; cvAccuracy = []; ldaConfMat = []; ldaClassNames = {};
+        end
+
+        statusLabel.Text = 'Running: Gaussian Mixture Model...';
+        drawnow;
+        % Fitted at the SAME k as k-means (rather than its own BIC-optimal
+        % k) so the two tabs describe the same partition size and are
+        % directly comparable -- same "consistent story across tabs"
+        % reasoning as the dendrogram's color threshold above. GMMKSCAN
+        % still scans 1..8 components separately as a model-selection
+        % diagnostic, shown alongside. Wrapped in try/catch: a pathological
+        % configuration (e.g. k close to the number of spectra) can leave
+        % FITGMDIST with a singular component covariance even after
+        % regularization, which should not take down the rest of the run.
+        try
+            [gmmClusterIdx, gmmPosterior, gmmBIC, gmmModel, gmmBICScan, gmmKScanUsed] = ...
+                runGMM(scoreReduced, k, gmmKScan);
+            ariGMMvsKmeans = adjustedRandIndex(clusterIdx, gmmClusterIdx);
+            if numel(groupNames) > 1
+                ariGMMvsFilename = adjustedRandIndex(groupIdx, gmmClusterIdx);
+            else
+                ariGMMvsFilename = NaN;
+            end
+        catch
+            gmmClusterIdx = []; gmmPosterior = []; gmmModel = []; gmmBIC = [];
+            gmmBICScan = []; gmmKScanUsed = []; ariGMMvsKmeans = NaN; ariGMMvsFilename = NaN;
+        end
+
         plotClusters(k);
         plotDendrogram(k);
+        plotLDA();
+        plotGMM();
         plotLoadingsAndClusters(k, wavenumbersUsed);
 
         hasResults = true;
@@ -416,11 +570,23 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         runBtn.Enable = 'on';
         runningLabel.Text = '';
         if isnan(ari)
-            statusLabel.Text = sprintf('Done: k=%d clusters (silhouette-suggested k=%d).', k, kSilhouette);
-        else
-            statusLabel.Text = sprintf('Done: k=%d clusters (silhouette-suggested k=%d); Adjusted Rand Index vs. filename groups = %.3f.', ...
+            msg = sprintf('Done: k=%d clusters (silhouette-suggested k=%d).', k, kSilhouette);
+        elseif isempty(cvAccuracy)
+            msg = sprintf('Done: k=%d clusters (silhouette-suggested k=%d); Adjusted Rand Index vs. filename groups = %.3f.', ...
                 k, kSilhouette, ari);
+        else
+            msg = sprintf(['Done: k=%d clusters (silhouette-suggested k=%d); Adjusted Rand Index vs. ' ...
+                'filename groups = %.3f; LDA cross-validated accuracy = %.1f%%.'], ...
+                k, kSilhouette, ari, 100 * cvAccuracy);
         end
+        if ~isempty(gmmClusterIdx)
+            msg = sprintf('%s GMM-vs-k-means agreement (ARI) = %.3f.', msg, ariGMMvsKmeans);
+        end
+        if refOverlayCheck.Value && ~isempty(refWN)
+            msg = sprintf('%s References: %d shown (%d classes), %d skipped (range not covered).', ...
+                msg, numel(refNamesUsed), numel(unique(refClassUsed)), numel(refSkipped));
+        end
+        statusLabel.Text = msg;
     end
 
 % -------------------------------------------------------------------------
@@ -488,19 +654,24 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         xlabel(axClustersByGroup, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByGroup, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByGroup, 'Colored by filename-derived group');
-        if ellipseCheck.Value
+        if ellipseCheck.Value || ~isempty(refScore)
             hold(axClustersByGroup, 'on');
-            for gi = 1:numel(groupNames)
-                gmask = strcmp(labels, groupNames{gi});
-                plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), groupColors(gi,:));
+            if ellipseCheck.Value
+                for gi = 1:numel(groupNames)
+                    gmask = strcmp(labels, groupNames{gi});
+                    plotConfidenceEllipse(axClustersByGroup, score(gmask,1), score(gmask,2), groupColors(gi,:));
+                end
+            end
+            if ~isempty(refScore)
+                plotReferenceOverlay(axClustersByGroup, refScore, refClassUsed);
             end
             hold(axClustersByGroup, 'off');
-            % Ellipses can extend past the scatter points' own bounds
-            % (especially the 90% one, for a spread-out group); GSCATTER
-            % already fixed XLim/YLim to the scatter alone before these
-            % were added, and axes in 'manual' limit mode don't grow to
-            % fit data plotted afterward -- switching back to 'auto' here
-            % forces a recompute against everything now in the axes.
+            % Ellipses/reference points can extend past the scatter
+            % points' own bounds; GSCATTER already fixed XLim/YLim to the
+            % scatter alone before these were added, and axes in 'manual'
+            % limit mode don't grow to fit data plotted afterward --
+            % switching back to 'auto' here forces a recompute against
+            % everything now in the axes.
             axClustersByGroup.XLimMode = 'auto';
             axClustersByGroup.YLimMode = 'auto';
         end
@@ -510,11 +681,16 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         xlabel(axClustersByKmeans, sprintf('PC1 (%.1f%%)', explained(1)));
         ylabel(axClustersByKmeans, sprintf('PC2 (%.1f%%)', explained(2)));
         title(axClustersByKmeans, sprintf('Colored by k-means cluster (k=%d)', k));
-        if ellipseCheck.Value
+        if ellipseCheck.Value || ~isempty(refScore)
             hold(axClustersByKmeans, 'on');
-            for c = 1:k
-                cmask = clusterIdx == c;
-                plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), clusterColors(c,:));
+            if ellipseCheck.Value
+                for c = 1:k
+                    cmask = clusterIdx == c;
+                    plotConfidenceEllipse(axClustersByKmeans, score(cmask,1), score(cmask,2), clusterColors(c,:));
+                end
+            end
+            if ~isempty(refScore)
+                plotReferenceOverlay(axClustersByKmeans, refScore, refClassUsed);
             end
             hold(axClustersByKmeans, 'off');
             axClustersByKmeans.XLimMode = 'auto';
@@ -527,14 +703,23 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
     % Draws the 80/85/90% confidence ellipses (dotted/dashed/solid) for a
     % single group of 2D points, assuming a bivariate normal distribution
     % -- a standard way to visualize how tight/overlapping clusters are
-    % in PC1-PC2 space, beyond just the scatter of points itself.
-    % HANDLEVISIBILITY off so these don't add clutter entries to the
-    % existing per-group/per-cluster legend from GSCATTER.
+    % in PC1-PC2 space, beyond just the scatter of points itself. Built
+    % from the group's own empirical mean/covariance; PLOTGMM uses the
+    % same underlying DRAWGAUSSIANELLIPSE with a fitted GMM component's
+    % mean/covariance instead (the model's shape, not a post-hoc summary
+    % of whichever points it ended up being assigned).
         if numel(x) < 3
             return
         end
-        mu = [mean(x), mean(y)];
-        C = cov(x, y);
+        drawGaussianEllipse(ax, [mean(x), mean(y)], cov(x, y), color);
+    end
+
+% -------------------------------------------------------------------------
+    function drawGaussianEllipse(ax, mu, C, color)
+    % Shared core of PLOTCONFIDENCEELLIPSE/PLOTGMM: 80/85/90% confidence
+    % ellipses (dotted/dashed/solid) of a bivariate normal with mean MU
+    % and covariance C. HANDLEVISIBILITY off so these don't add clutter
+    % entries to the existing per-group/per-cluster legend from GSCATTER.
         [V, D] = eig(C);
         theta = linspace(0, 2*pi, 100);
         circle = [cos(theta); sin(theta)];
@@ -542,7 +727,7 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         styles = {':', '--', '-'};
         for i = 1:numel(confLevels)
             r = sqrt(chi2inv(confLevels(i), 2));
-            pts = mu' + V * sqrt(D) * r * circle;
+            pts = mu(:) + V * sqrt(D) * r * circle;
             plot(ax, pts(1,:), pts(2,:), styles{i}, 'Color', color, ...
                 'LineWidth', 1.2, 'HandleVisibility', 'off');
         end
@@ -586,6 +771,117 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         xlabel(axDendro, 'Spectrum');
         ylabel(axDendro, 'Ward linkage distance');
         title(axDendro, sprintf('Hierarchical clustering dendrogram (color threshold tuned for k=%d)', k));
+    end
+
+% -------------------------------------------------------------------------
+    function plotLDA()
+    % Supervised counterpart to the unsupervised PCA/k-means/dendrogram
+    % tabs: how well can the filename-derived groups themselves be told
+    % apart, rather than what natural structure exists in the data.
+        clearAxesFully(axLDAScatter);
+        clearAxesFully(axLDAConfusion);
+        if isempty(ldaScores)
+            text(axLDAScatter, 0.5, 0.5, 'Need at least two filename-derived groups for LDA.', ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            text(axLDAConfusion, 0.5, 0.5, 'Need at least two filename-derived groups for LDA.', ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            return
+        end
+
+        groupColors = lines(numel(ldaClassNames));
+        if size(ldaScores, 2) >= 2
+            gscatter(axLDAScatter, ldaScores(:,1), ldaScores(:,2), labels, groupColors);
+            xlabel(axLDAScatter, sprintf('LD1 (%.1f%%)', explainedLDA(1)));
+            ylabel(axLDAScatter, sprintf('LD2 (%.1f%%)', explainedLDA(2)));
+        else
+            % Exactly two groups: Fisher's LDA only has one discriminant
+            % axis, so LD1 is plotted against sample index instead of a
+            % (nonexistent) LD2.
+            gscatter(axLDAScatter, (1:numel(labels))', ldaScores(:,1), labels, groupColors);
+            xlabel(axLDAScatter, 'Sample index');
+            ylabel(axLDAScatter, sprintf('LD1 (%.1f%%)', explainedLDA(1)));
+        end
+        title(axLDAScatter, 'LD1 vs LD2 (colored by filename-derived group)');
+
+        nC = numel(ldaClassNames);
+        imagesc(axLDAConfusion, ldaConfMat);
+        colormap(axLDAConfusion, 'parula');
+        axLDAConfusion.XTick = 1:nC;
+        axLDAConfusion.YTick = 1:nC;
+        axLDAConfusion.XTickLabel = ldaClassNames;
+        axLDAConfusion.YTickLabel = ldaClassNames;
+        axLDAConfusion.XTickLabelRotation = 45;
+        xlabel(axLDAConfusion, 'Predicted (cross-validated)');
+        ylabel(axLDAConfusion, 'Actual (filename-derived group)');
+        title(axLDAConfusion, sprintf('Confusion matrix (cross-validated accuracy = %.1f%%)', 100 * cvAccuracy));
+        hold(axLDAConfusion, 'on');
+        for r = 1:nC
+            for cCol = 1:nC
+                text(axLDAConfusion, cCol, r, num2str(ldaConfMat(r, cCol)), ...
+                    'HorizontalAlignment', 'center', 'Color', [1 1 1]);
+            end
+        end
+        hold(axLDAConfusion, 'off');
+        axLDAConfusion.YDir = 'reverse';
+    end
+
+% -------------------------------------------------------------------------
+    function plotGMM()
+    % Gaussian Mixture Model: an unsupervised soft-clustering alternative
+    % to k-means, fitted at the same k (see ONRUNANALYSIS) for a direct
+    % comparison. Unlike k-means' hard, equal-size-favoring partition,
+    % each point here has a full posterior probability of belonging to
+    % every component, and each component is a full (not just spherical)
+    % Gaussian in PCA-score space -- so clusters can come out elongated/
+    % correlated rather than always round. The scatter is still colored
+    % by the hard assignment (argmax posterior) for a legend to make
+    % sense, but the mean max-posterior in the title is a quick read on
+    % how "soft" the fit actually turned out to be (close to 1 = clean
+    % separation, close to 1/k = points sitting ambiguously between
+    % components).
+        clearAxesFully(axGMMScatter);
+        clearAxesFully(axGMMBIC);
+        if isempty(gmmClusterIdx)
+            text(axGMMScatter, 0.5, 0.5, 'GMM fit failed for this configuration.', ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            text(axGMMBIC, 0.5, 0.5, 'GMM fit failed for this configuration.', ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            return
+        end
+
+        nComp = size(gmmPosterior, 2);
+        gmmColors = lines(nComp);
+        gscatter(axGMMScatter, score(:,1), score(:,2), gmmClusterIdx, gmmColors);
+        xlabel(axGMMScatter, sprintf('PC1 (%.1f%%)', explained(1)));
+        ylabel(axGMMScatter, sprintf('PC2 (%.1f%%)', explained(2)));
+        meanMaxPost = mean(max(gmmPosterior, [], 2));
+        title(axGMMScatter, sprintf('GMM soft clustering (k=%d, mean max-posterior = %.2f)', nComp, meanMaxPost));
+        hold(axGMMScatter, 'on');
+        for c = 1:nComp
+            mu2 = gmmModel.mu(c, 1:2);
+            if strcmpi(gmmModel.CovarianceType, 'diagonal')
+                Sigma2 = diag(gmmModel.Sigma(1, 1:2, c));
+            else
+                Sigma2 = gmmModel.Sigma(1:2, 1:2, c);
+            end
+            drawGaussianEllipse(axGMMScatter, mu2, Sigma2, gmmColors(c,:));
+        end
+        hold(axGMMScatter, 'off');
+        axGMMScatter.XLimMode = 'auto';
+        axGMMScatter.YLimMode = 'auto';
+
+        plot(axGMMBIC, gmmKScanUsed, gmmBICScan, '-o');
+        hold(axGMMBIC, 'on');
+        [minBIC, ib] = min(gmmBICScan);
+        if ~isnan(minBIC)
+            plot(axGMMBIC, gmmKScanUsed(ib), minBIC, 'r*', 'MarkerSize', 10, 'HandleVisibility', 'off');
+        end
+        yl = ylim(axGMMBIC);
+        plot(axGMMBIC, [nComp nComp], yl, 'k--', 'HandleVisibility', 'off');
+        hold(axGMMBIC, 'off');
+        xlabel(axGMMBIC, 'Number of components');
+        ylabel(axGMMBIC, 'BIC (lower is better)');
+        title(axGMMBIC, sprintf('Model selection: BIC vs. components (used k=%d, dashed line)', nComp));
     end
 
 % -------------------------------------------------------------------------
@@ -648,15 +944,35 @@ title(axMeanSpectra, 'Mean spectrum per cluster');
         exportgraphics(axClustersByGroup, fullfile(d, 'clusters_by_filename_group.png'));
         exportgraphics(axClustersByKmeans, fullfile(d, 'clusters_by_kmeans.png'));
         exportgraphics(axDendro, fullfile(d, 'dendrogram.png'));
+        exportgraphics(axLDAScatter, fullfile(d, 'lda_scatter.png'));
+        exportgraphics(axLDAConfusion, fullfile(d, 'lda_confusion_matrix.png'));
+        exportgraphics(axGMMScatter, fullfile(d, 'gmm_scatter.png'));
+        exportgraphics(axGMMBIC, fullfile(d, 'gmm_bic.png'));
         exportgraphics(axLoadings, fullfile(d, 'pca_loadings.png'));
         exportgraphics(axMeanSpectra, fullfile(d, 'mean_spectrum_per_cluster.png'));
 
-        resultsTable = table(filenames, labels, clusterIdx, score(:,1), score(:,2), score(:,3), ...
-            'VariableNames', {'FileName','FilenameGroup','Cluster','PC1','PC2','PC3'});
+        if isempty(gmmClusterIdx)
+            gmmClusterCol = nan(size(clusterIdx));
+        else
+            gmmClusterCol = gmmClusterIdx;
+        end
+        resultsTable = table(filenames, labels, clusterIdx, gmmClusterCol, score(:,1), score(:,2), score(:,3), ...
+            'VariableNames', {'FileName','FilenameGroup','KMeansCluster','GMMCluster','PC1','PC2','PC3'});
         writetable(resultsTable, fullfile(d, 'cluster_assignments.csv'));
+
+        if ~isempty(refScore)
+            refTable = table(refNamesUsed(:), refClassUsed(:), refScore(:,1), refScore(:,2), refScore(:,3), ...
+                'VariableNames', {'Name','Class','PC1','PC2','PC3'});
+            writetable(refTable, fullfile(d, 'reference_projections.csv'));
+        end
+
         save(fullfile(d, 'pca_kmeans_results.mat'), 'X', 'Xproc', 'wavenumbers', 'labels', ...
             'filenames', 'coeff', 'score', 'explained', 'clusterIdx', 'contingency', 'ari', ...
-            'kRange', 'wcss', 'meanSil', 'kSilhouette');
+            'kRange', 'wcss', 'meanSil', 'kSilhouette', ...
+            'ldaScores', 'explainedLDA', 'cvAccuracy', 'ldaConfMat', 'ldaClassNames', ...
+            'gmmClusterIdx', 'gmmPosterior', 'gmmModel', 'gmmBIC', 'gmmBICScan', 'gmmKScanUsed', ...
+            'ariGMMvsKmeans', 'ariGMMvsFilename', ...
+            'refDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped');
 
         statusLabel.Text = sprintf('Results saved to %s.', d);
     end

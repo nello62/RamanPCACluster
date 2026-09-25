@@ -9,10 +9,15 @@ function [X, wavenumbers, labels, filenames] = loadRamanSpectra(spectraDir)
 %                   spectrum, sorted by increasing wavenumber
 %     wavenumbers - [1 x nPoints] common wavenumber axis
 %     labels      - {nSpectra x 1} group name guessed from each file's
-%                   name (the part before the trailing "_<number><letter>.
-%                   <number>.dpt" suffix, e.g. "CT_P_11b.0.dpt" -> "CT_P");
-%                   purely for later validation/plotting, not used to
-%                   guide the (unsupervised) analysis itself
+%                   name (everything up to the underscore that
+%                   introduces the sample identifier, itself always
+%                   starting with a digit -- e.g. "CT_P_11b.0.dpt" ->
+%                   "CT_P", "Paradiso_31-nonpellet.0.dpt" -> "Paradiso";
+%                   the sample identifier after that point can be
+%                   anything, since real filenames in the wild are not
+%                   always consistently formatted); purely for later
+%                   validation/plotting, not used to guide the
+%                   (unsupervised) analysis itself
 %     filenames   - {nSpectra x 1} original file names, same order as X
 %
 %   All files must share the exact same wavenumber grid as the first one
@@ -45,5 +50,5 @@ function [X, wavenumbers, labels, filenames] = loadRamanSpectra(spectraDir)
         X(i, :) = yi(ordi);
     end
 
-    labels = regexprep(filenames, '_[0-9]+[a-z]*\.[0-9]+\.dpt$', '');
+    labels = regexprep(filenames, '^(.*)_[0-9].*\.[0-9]+\.dpt$', '$1');
 end
