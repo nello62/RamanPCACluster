@@ -170,6 +170,14 @@ uibutton(sidebar, 'push', 'Position', [10 100 sidebarW-20 26], ...
     'Text', 'Select reference folder...', 'ButtonPushedFcn', @(s,e) onSelectReferenceFolder());
 lblRefFolder = uilabel(sidebar, 'Position', [10 78 sidebarW-20 18], 'Text', 'Ref: -', 'FontSize', 11);
 
+% ---- Sidebar: Session -------------------------------------------------------
+% Reverts the app to the exact state it starts in (no spectra loaded,
+% every preprocessing/clustering control back to its startup default), to
+% begin a new analysis from scratch -- the reference library loaded above
+% is deliberately the ONE thing left untouched (see ONNEWSESSION).
+uibutton(sidebar, 'push', 'Position', [10 20 sidebarW-20 30], ...
+    'Text', 'New session (clear all)', 'ButtonPushedFcn', @(s,e) onNewSession());
+
 % ---- Main area: tabbed results ---------------------------------------------
 tg = uitabgroup(fig, 'Position', [sidebarW+10 40 1400-sidebarW-20 810]);
 tabPreprocess = uitab(tg, 'Title', 'Preprocessing');
@@ -250,6 +258,14 @@ end
         kids = findall(ax);
         kids(kids == ax) = [];
         delete(kids);
+        % An axes' Legend is NOT a child of the axes in the graphics
+        % hierarchy FINDALL traverses (confirmed empirically: it is never
+        % among FINDALL's results), so deleting its lines/scatter above
+        % leaves it behind, valid but empty -- an empty legend box stuck
+        % on the plot. LEGEND(AX,'OFF') removes it cleanly; harmless when
+        % a fresh GSCATTER/plot immediately follows (as in every PLOTXXX
+        % function here), since that recreates its own legend anyway.
+        legend(ax, 'off');
         % GSCATTER (used for the cluster scatter plots) sets XLim/YLim
         % explicitly on its first call, which switches XLimMode/YLimMode
         % to 'manual' -- confirmed empirically: without resetting this
@@ -975,6 +991,101 @@ end
             'refDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped');
 
         statusLabel.Text = sprintf('Results saved to %s.', d);
+    end
+
+% -------------------------------------------------------------------------
+    function onNewSession()
+    % Reverts the app to the exact state it starts in -- no spectra
+    % loaded, every preprocessing/clustering control back to its startup
+    % default -- to begin an unrelated analysis from scratch. The loaded
+    % reference LIBRARY (REFWN/REFINTENSITY/REFCLASS/REFNAMES/REFDIR, and
+    % LBLREFFOLDER) is the one thing deliberately left untouched: it is a
+    % reusable resource picked once (often the same SLoPP folder across
+    % many different sample analyses), not a per-analysis result, and
+    % reloading potentially hundreds of files on every new session would
+    % be wasteful for no benefit.
+        if isempty(X) && ~hasResults
+            return
+        end
+        answer = uiconfirm(fig, ...
+            'This clears the loaded spectra and every analysis result, and resets every setting to its default. This cannot be undone. Continue?', ...
+            'New session', 'Options', {'Clear all', 'Cancel'}, ...
+            'DefaultOption', 2, 'CancelOption', 2, 'Icon', 'warning');
+        if ~strcmp(answer, 'Clear all')
+            return
+        end
+
+        % --- Clear the loaded dataset and every analysis result ---
+        spectraDir = '';
+        X = []; wavenumbers = []; labels = {}; filenames = {};
+        Xproc = []; baselines = [];
+        coeff = []; score = []; explained = [];
+        clusterIdx = []; contingency = []; ari = []; k = [];
+        ldaScores = []; explainedLDA = []; cvAccuracy = []; ldaConfMat = []; ldaClassNames = {};
+        gmmClusterIdx = []; gmmPosterior = []; gmmModel = []; gmmBIC = [];
+        gmmBICScan = []; gmmKScanUsed = []; ariGMMvsKmeans = []; ariGMMvsFilename = [];
+        refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+        kRange = 2:8; wcss = []; meanSil = []; kSilhouette = [];
+        scoreReduced = [];
+        hasResults = false;
+
+        % --- Reset Data controls ---
+        lblFolder.Text = 'Folder: -';
+        lblNSpectra.Text = 'Spectra: -';
+
+        % --- Reset Spectral range controls ---
+        rangeMinField.Value = 0; rangeMinField.Enable = 'off';
+        rangeMaxField.Value = 0; rangeMaxField.Enable = 'off';
+        fullRangeBtn.Enable = 'off';
+
+        % --- Reset Preprocessing controls to their startup defaults ---
+        baselineCheck.Value = true;
+        baselineMethodDD.Value = 'airPLS';
+        backcorOrderField.Value = 5; backcorThresholdField.Value = 0.1; backcorFctDD.Value = 'atq';
+        baselineLambdaField.Value = 1e6; baselineOrderField.Value = 2;
+        airplsWepField.Value = 0.1; airplsPField.Value = 0.05; airplsIterField.Value = 20;
+        snipIterField.Value = 40; snipLLSCheck.Value = true;
+        aplsGammaField.Value = 1e5; aplsOrderField.Value = 2; aplsIterField.Value = 10;
+        onBaselineMethodChanged();  % re-syncs which method's fields are shown/enabled
+        smoothCheck.Value = true;
+        normalizeDD.Value = 'Area';
+
+        % --- Reset Clustering controls ---
+        autoKCheck.Value = false;
+        kField.Value = 3; kField.Enable = 'on';
+        ellipseCheck.Value = false;
+
+        % --- Reset the reference-overlay TOGGLE only (not the library itself) ---
+        refOverlayCheck.Value = false;
+
+        % --- Disable Run/Save, clear every plot back to its startup title ---
+        runBtn.Enable = 'off';
+        saveBtn.Enable = 'off';
+        runningLabel.Text = '';
+        clearAxesFully(axPre1); clearAxesFully(axPre2);
+        clearAxesFully(axScree);
+        clearAxesFully(axElbow); clearAxesFully(axSil);
+        clearAxesFully(axClustersByGroup); clearAxesFully(axClustersByKmeans);
+        clearAxesFully(axDendro);
+        clearAxesFully(axLDAScatter); clearAxesFully(axLDAConfusion);
+        clearAxesFully(axGMMScatter); clearAxesFully(axGMMBIC);
+        clearAxesFully(axLoadings); clearAxesFully(axMeanSpectra);
+        title(axPre1, 'Example: raw spectrum + estimated baseline');
+        title(axPre2, 'Example: after baseline/smooth/normalize');
+        title(axScree, 'Scree plot');
+        title(axElbow, 'Elbow plot');
+        title(axSil, 'Silhouette analysis');
+        title(axClustersByGroup, 'Colored by filename-derived group');
+        title(axClustersByKmeans, 'Colored by k-means cluster');
+        title(axDendro, 'Hierarchical clustering dendrogram');
+        title(axLDAScatter, 'LD1 vs LD2 (colored by filename-derived group)');
+        title(axLDAConfusion, 'Cross-validated confusion matrix');
+        title(axGMMScatter, 'Colored by GMM component (soft clustering)');
+        title(axGMMBIC, 'Model selection: BIC vs. number of components');
+        title(axLoadings, 'PCA loadings');
+        title(axMeanSpectra, 'Mean spectrum per cluster');
+
+        statusLabel.Text = 'New session started. Select a folder of .dpt spectra to begin.';
     end
 
 end
