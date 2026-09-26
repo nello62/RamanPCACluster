@@ -938,6 +938,7 @@ end
     % k-means cluster, its size, nearest reference material class and
     % distance, and the runner-up, so a large gap between the two reads as
     % a confident match and a near-tie reads as an ambiguous one.
+        removeStyle(identTable);
         if isempty(identBestClass)
             identTable.ColumnName = {'Note'};
             identTable.Data = {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'};
@@ -946,14 +947,22 @@ end
         identTable.ColumnName = {'Cluster', 'N', 'Best match', 'Distance', 'Runner-up', 'Distance'};
         data = cell(k, 6);
         for c = 1:k
-            data{c, 1} = c;
-            data{c, 2} = sum(clusterIdx == c);
+            data{c, 1} = int32(c);  % INT32, not DOUBLE, so the table shows "1" rather than "1.0000"
+            data{c, 2} = int32(sum(clusterIdx == c));
             data{c, 3} = identBestClass{c};
             data{c, 4} = round(identBestDist(c), 4);
             data{c, 5} = identSecondClass{c};
             data{c, 6} = round(identSecondDist(c), 4);
         end
         identTable.Data = data;
+        % Same LINES(k) source PLOTCLUSTERS uses for axClustersByKmeans
+        % (and PLOTLOADINGSANDCLUSTERS for the mean-spectra legend), so
+        % the "Cluster" number here reads as the same color across every
+        % tab rather than an unrelated one.
+        clusterColors = lines(k);
+        for c = 1:k
+            addStyle(identTable, uistyle('FontColor', clusterColors(c,:), 'FontWeight', 'bold'), 'cell', [c 1]);
+        end
     end
 
 % -------------------------------------------------------------------------
@@ -1150,6 +1159,7 @@ end
         title(axGMMBIC, 'Model selection: BIC vs. number of components');
         title(axLoadings, 'PCA loadings');
         title(axMeanSpectra, 'Mean spectrum per cluster');
+        removeStyle(identTable);
         identTable.ColumnName = {'Note'};
         identTable.Data = {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'};
 
