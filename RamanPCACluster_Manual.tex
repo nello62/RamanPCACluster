@@ -272,6 +272,11 @@ automatically at startup as the default. \\
 \code{Save results...} & Exports every plot (PNG), the per-spectrum
 cluster table (CSV), and all numeric results (\code{.mat}) to a chosen
 folder (\S\ref{sec:outputs}). \\
+\code{New session (clear all)} & Reverts the app to its startup state --
+no spectra loaded, every preprocessing/clustering control back to its
+default -- to begin an unrelated analysis from scratch (confirmation
+required). The loaded reference library is deliberately left in place,
+since it is a reusable resource rather than a per-analysis result. \\
 \end{argtabletwo}
 
 % -----------------------------------------------------------------------------
@@ -296,6 +301,10 @@ folder (\S\ref{sec:outputs}). \\
   component's own confidence ellipses; and a BIC-vs-number-of-components
   plot for model selection, with the number of components actually used
   (same $k$ as $k$-means) marked by a dashed line.
+  \item \textbf{Identification} -- one row per $k$-means cluster: its
+  size, nearest reference material class and distance, and the runner-up
+  class/distance (\S\ref{sec:identification}). Shown only once a
+  reference library has been loaded and overlaid.
   \item \textbf{Loadings} -- PC1/PC2 loadings and per-cluster mean spectra,
   both plotted as an offset (waterfall) stack for readability.
 \end{itemize}
@@ -326,6 +335,11 @@ folder (\S\ref{sec:outputs}). \\
   \item \textbf{Compare} the resulting clusters against the filename-derived
   groups (contingency table and Adjusted Rand Index) -- informational only,
   never used to guide the unsupervised clustering itself.
+  \item \textbf{Identify} (indicative, only if a reference library was
+  loaded, \S\ref{sec:identification}): each $k$-means cluster's nearest
+  reference material class, by centroid distance in the same retained-PCA
+  subspace $k$-means itself clustered on, plus the runner-up class/distance
+  to gauge confidence.
   \item \textbf{Dendrogram}: Ward-linkage hierarchical clustering on the same
   retained PCA scores, as an alternative view that does not require choosing
   $k$ upfront.
@@ -745,6 +759,54 @@ distinct from the filename-derived groups' or $k$-means clusters' own
 markers/colors, so a reference point is never mistaken for an actual
 sample.
 
+% -----------------------------------------------------------------------------
+\subsection{Cluster identification (nearest-centroid matching)}
+\label{sec:identification}
+% -----------------------------------------------------------------------------
+Once reference spectra sit in the same PCA space as the analyzed samples
+(\S\ref{sec:references}), a natural next question is which known material
+each $k$-means cluster most resembles. The app answers this with the
+simplest classical approach available: \emph{nearest-centroid matching}
+(the same principle behind the ``nearest class mean'' / Rocchio
+classifier of classical pattern recognition), applied here at the level
+of whole clusters rather than individual points.
+
+\paragraph{The matching rule.} Let $\boldsymbol\mu_j$ be cluster $j$'s
+centroid -- the mean of its members' scores, in the \emph{same} retained
+PCA subspace $k$-means itself clustered on (\S\ref{sec:pca}), not just the
+PC1-PC2 plane the scatter plots happen to display -- and
+$\boldsymbol\nu_c$ the centroid of reference class $c$'s own spectra in
+that identical subspace. The cluster is labeled with the class minimizing
+the Euclidean distance,
+\[
+  \hat c(j) = \arg\min_c \big\lVert \boldsymbol\mu_j - \boldsymbol\nu_c \big\rVert ,
+\]
+and the runner-up class -- the second-smallest distance -- is reported
+alongside it. The gap between the two is the whole point of showing a
+runner-up at all: a best match much closer than the runner-up reads as
+confident, while two nearly-tied distances reads as genuinely ambiguous
+(e.g.\ Polyethylene vs.\ Polypropylene, whose Raman spectra are
+notoriously similar) rather than a clean identification.
+
+\begin{tbnote}
+\textbf{This is a heuristic, not a classifier.} Unlike LDA
+(\S\ref{sec:lda}), nothing here is fitted or cross-validated: there is no
+decision boundary learned from held-out data, no estimate of how often
+this rule would be right. Two limitations follow directly from that:
+(i) $\arg\min$ always returns \emph{some} class, even when the cluster's
+true material is not in the reference library at all -- the reported
+match is then only the least-wrong guess among what happens to be
+available, not evidence that material is actually present (this is the
+classic \emph{open-set} problem: a nearest-neighbor/nearest-centroid rule
+has no built-in way to say ``none of the above''); (ii) a reference
+library assembled from different instruments/samples than the analyzed
+spectra can carry its own systematic offset in PCA space unrelated to
+material identity. Treat every match as a starting hypothesis to verify
+against the raw spectra (e.g.\ known characteristic bands for that
+material) -- never as a final identification on its own, particularly
+when the runner-up distance is close to the best match's.
+\end{tbnote}
+
 % =============================================================================
 \section{Output files}
 \label{sec:outputs}
@@ -773,6 +835,10 @@ sample.
   \item \code{reference\_projections.csv} (only if the reference overlay
   was used) -- one row per reference spectrum actually shown: name,
   material class, and its projected PC1/PC2/PC3 scores.
+  \item \code{cluster\_identification.csv} (only if a reference library
+  was loaded) -- one row per $k$-means cluster: its size, nearest
+  reference material class and distance, and the runner-up class/distance
+  (\S\ref{sec:identification}).
   \item \code{pca\_kmeans\_results.mat} -- every numeric result (raw and
   preprocessed data, PCA coefficients/scores/explained variance, cluster
   assignments, contingency table, Adjusted Rand Index, elbow/silhouette
@@ -781,9 +847,10 @@ sample.
   output: the fitted \code{gmdistribution} model, hard cluster assignment,
   posterior probabilities, BIC, the BIC scan across $k=1,\dots,8$, and the
   Adjusted Rand Index against both $k$-means and the filename-derived
-  groups; and, if used, the reference library's folder, projected scores,
+  groups; if used, the reference library's folder, projected scores,
   material classes, names, and the list of references skipped for not
-  covering the analysis range).
+  covering the analysis range; and, if computed, each cluster's best-match
+  and runner-up identification classes/distances).
 \end{itemize}
 
 % =============================================================================

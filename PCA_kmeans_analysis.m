@@ -132,6 +132,32 @@ disp(array2table(contingency, 'VariableNames', strcat('Cluster', string(1:k)), '
 ari = adjustedRandIndex(groupIdx, clusterIdx);
 fprintf('Adjusted Rand Index (agreement with filename-derived groups): %.3f\n', ari);
 
+%% 6.5. Cluster identification (indicative): nearest reference material
+% class per cluster, by centroid distance in the same PCA subspace
+% k-means itself clustered on. A purely descriptive heuristic (nearest-
+% centroid matching, no fitted/validated classifier) -- always read the
+% distance alongside the label, not the label alone.
+identBestClass = {}; identBestDist = []; identSecondClass = {}; identSecondDist = [];
+if ~isempty(refScore)
+    nDimsIdent = size(scoreReduced, 2);
+    clusterCentroids = zeros(k, nDimsIdent);
+    for c = 1:k
+        clusterCentroids(c, :) = mean(scoreReduced(clusterIdx == c, :), 1);
+    end
+    [identBestClass, identBestDist, identSecondClass, identSecondDist] = ...
+        identifyClustersByReference(clusterCentroids, refScore(:, 1:nDimsIdent), refClassUsed);
+    fprintf('\nCluster identification (indicative, nearest reference class):\n');
+    for c = 1:k
+        fprintf('  Cluster %d (n=%d): %s (d=%.4f); runner-up: %s (d=%.4f)\n', ...
+            c, sum(clusterIdx == c), identBestClass{c}, identBestDist(c), ...
+            identSecondClass{c}, identSecondDist(c));
+    end
+    identTable = table((1:k)', arrayfun(@(c) sum(clusterIdx == c), (1:k)'), ...
+        identBestClass(:), identBestDist(:), identSecondClass(:), identSecondDist(:), ...
+        'VariableNames', {'Cluster','N','BestMatchClass','BestMatchDistance','RunnerUpClass','RunnerUpDistance'});
+    writetable(identTable, fullfile(resultsDir, 'cluster_identification.csv'));
+end
+
 %% 7. LDA (supervised): how separable are the filename-derived groups
 % themselves, independent of whatever k-means finds? Run on the same
 % PCA-reduced scores used for clustering (LDA's within-class scatter
@@ -282,6 +308,7 @@ save(fullfile(resultsDir, 'pca_kmeans_results.mat'), 'X', 'Xproc', 'wavenumbers'
     'ldaScores', 'explainedLDA', 'cvAccuracy', 'ldaConfMat', 'ldaClassNames', ...
     'gmmClusterIdx', 'gmmPosterior', 'gmmModel', 'gmmBIC', 'gmmBICScan', 'gmmKScanUsed', ...
     'ariGMMvsKmeans', 'ariGMMvsFilename', ...
-    'referenceDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped');
+    'referenceDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped', ...
+    'identBestClass', 'identBestDist', 'identSecondClass', 'identSecondDist');
 
 fprintf('\nDone. Figures and results saved to %s\n', resultsDir);

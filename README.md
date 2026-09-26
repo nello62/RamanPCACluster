@@ -16,12 +16,16 @@ as a MATLAB script and an interactive App.
 - `PCAClusterApp.m` — interactive app: pick a folder of `.dpt` spectra,
   set the spectral range, preprocessing, and number of clusters, run the
   analysis, inspect the results across tabs (including a hierarchical
-  clustering dendrogram, an LDA tab, a GMM soft-clustering tab, and
-  optional 80/85/90% confidence ellipses on the PCA scatter plots), and
-  export them. A folder of known-material reference spectra (e.g. SLoPP/)
-  can optionally be overlaid on the PCA scatter plots, one marker shape
-  per material class -- purely for visual comparison, never fed into the
-  analysis (see `loadReferenceSpectra.m` below).
+  clustering dendrogram, an LDA tab, a GMM soft-clustering tab, an
+  Identification tab, and optional 80/85/90% confidence ellipses on the
+  PCA scatter plots), and export them. "New session (clear all)" resets
+  every setting/result back to the app's startup state to begin an
+  unrelated analysis. A folder of known-material reference spectra (e.g.
+  SLoPP/) can optionally be overlaid on the PCA scatter plots, one marker
+  shape per material class -- purely for visual comparison, never fed
+  into the analysis (see `loadReferenceSpectra.m` below) -- and used to
+  suggest a material identity for each k-means cluster (see
+  `identifyClustersByReference.m` below).
 - `PCA_kmeans_analysis.m` — the same pipeline as a plain script (edit the
   top of the file to point at a different `Spectra/` folder), useful for
   batch/reproducible runs outside the GUI.
@@ -68,6 +72,13 @@ as a MATLAB script and an interactive App.
 - `plotReferenceOverlay.m` — draws already-projected reference points on
   a PCA scatter plot, one marker shape (cycling through a fixed set) and
   HSV color per material class, with a legend entry each.
+- `identifyClustersByReference.m` — indicative material identification:
+  for each k-means cluster, the reference material class whose spectra
+  (averaged into that class's own centroid) sit closest in PCA space,
+  plus the runner-up class/distance to gauge how confident or ambiguous
+  the match is. A descriptive nearest-centroid heuristic, not a fitted or
+  cross-validated classifier -- see "Cluster identification" in the
+  Pipeline section below.
 - `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m` —
   third-party/personal helper functions, copied in for self-containment
   (see below).
@@ -95,6 +106,17 @@ as a MATLAB script and an interactive App.
 7. **Compare** the resulting clusters against each spectrum's
    filename-derived group (contingency table + Adjusted Rand Index) --
    informational only, not used to guide the clustering.
+7.5. **Cluster identification** (indicative, only if a reference library
+   is loaded): for each k-means cluster, the reference material class
+   whose spectra sit closest by centroid distance in the same PCA
+   subspace k-means clustered on, plus the runner-up class/distance --
+   e.g. "Cluster 3: Polypropylene (d=0.0030); runner-up: Polyamide
+   (d=0.0068)". A nearest-centroid heuristic, not a fitted/cross-validated
+   classifier: it always returns *a* closest class, even from a small or
+   incomplete library that may not actually contain the true material --
+   read the distance (a small best-match distance with a much larger
+   runner-up is a confident match; two nearly-tied distances is not) and
+   the PCA scatter itself, not the label alone.
 8. **Dendrogram** (App only): Ward-linkage hierarchical clustering on the
    same retained PCA scores, as an alternative view of cluster structure
    that doesn't require picking k upfront; the color threshold is tuned

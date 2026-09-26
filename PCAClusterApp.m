@@ -15,14 +15,18 @@ function PCAClusterApp()
 %   plastics library) can optionally be overlaid on the PCA scatter plots
 %   with a distinct marker per material class (LOADREFERENCESPECTRA,
 %   PROJECTREFERENCESPECTRA) -- purely for visual comparison, the
-%   references never take part in PCA/k-means/GMM/LDA themselves.
+%   references never take part in PCA/k-means/GMM/LDA themselves. When a
+%   reference library is loaded, the Identification tab also reports each
+%   k-means cluster's nearest reference material class by centroid
+%   distance in PCA space (IDENTIFYCLUSTERSBYREFERENCE) -- an indicative
+%   heuristic, not a validated classification.
 %
 %   Requires the Statistics and Machine Learning Toolbox (PCA, KMEANS,
 %   SILHOUETTE, FITGMDIST, FITCDISCR) and Signal Processing Toolbox
 %   (SGOLAYFILT, via PREPROCESSSPECTRA).
 %
 %   See also LOADRAMANSPECTRA, PREPROCESSSPECTRA, ADJUSTEDRANDINDEX, RUNLDA, RUNGMM, ...
-%       LOADREFERENCESPECTRA, PROJECTREFERENCESPECTRA.
+%       LOADREFERENCESPECTRA, PROJECTREFERENCESPECTRA, IDENTIFYCLUSTERSBYREFERENCE.
 
 % -------------------------------------------------------------------------
 % Session state (nested-function closures share these -- same single-file,
@@ -38,6 +42,7 @@ gmmClusterIdx = []; gmmPosterior = []; gmmModel = []; gmmBIC = [];
 gmmBICScan = []; gmmKScan = 1:8; gmmKScanUsed = []; ariGMMvsKmeans = []; ariGMMvsFilename = [];
 refDir = ''; refWN = {}; refIntensity = {}; refClass = {}; refNames = {};
 refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+identBestClass = {}; identBestDist = []; identSecondClass = {}; identSecondDist = [];
 kRange = 2:8; wcss = []; meanSil = []; kSilhouette = [];
 scoreReduced = [];
 hasResults = false;
@@ -187,6 +192,7 @@ tabClusters = uitab(tg, 'Title', 'Clusters');
 tabDendro = uitab(tg, 'Title', 'Dendrogram');
 tabLDA = uitab(tg, 'Title', 'LDA');
 tabGMM = uitab(tg, 'Title', 'GMM');
+tabIdent = uitab(tg, 'Title', 'Identification');
 tabLoadings = uitab(tg, 'Title', 'Loadings');
 
 axPre1 = uiaxes(tabPreprocess, 'Position', [10 10 490 760]);
@@ -219,6 +225,15 @@ axGMMScatter = uiaxes(tabGMM, 'Position', [10 10 490 760]);
 title(axGMMScatter, 'Colored by GMM component (soft clustering)');
 axGMMBIC = uiaxes(tabGMM, 'Position', [510 10 490 760]);
 title(axGMMBIC, 'Model selection: BIC vs. number of components');
+
+uilabel(tabIdent, 'Position', [10 730 970 30], 'WordWrap', 'on', ...
+    'Text', ['Indicative only: each cluster''s nearest reference material class, by centroid ' ...
+             'distance in the same PCA subspace used for k-means. A small/incomplete reference ' ...
+             'library -- or a cluster whose true material isn''t in it at all -- can still report ' ...
+             'a "closest" class; always check the distance (and the Clusters tab overlay), not the label alone.']);
+identTable = uitable(tabIdent, 'Position', [10 10 970 710], ...
+    'ColumnName', {'Note'}, 'ColumnEditable', false, ...
+    'Data', {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'});
 
 axLoadings = uiaxes(tabLoadings, 'Position', [10 10 490 760]);
 title(axLoadings, 'PCA loadings');
@@ -539,6 +554,20 @@ end
             ari = NaN;
         end
 
+        identBestClass = {}; identBestDist = []; identSecondClass = {}; identSecondDist = [];
+        if ~isempty(refScore)
+            % Same PCA subspace k-means itself clustered on (not just the
+            % PC1-PC2 plane the scatter plots show), for consistency with
+            % what actually separated these clusters in the first place.
+            nDimsIdent = size(scoreReduced, 2);
+            clusterCentroids = zeros(k, nDimsIdent);
+            for c = 1:k
+                clusterCentroids(c, :) = mean(scoreReduced(clusterIdx == c, :), 1);
+            end
+            [identBestClass, identBestDist, identSecondClass, identSecondDist] = ...
+                identifyClustersByReference(clusterCentroids, refScore(:, 1:nDimsIdent), refClassUsed);
+        end
+
         statusLabel.Text = 'Running: LDA...';
         drawnow;
         % LDA is supervised (needs >=2 known groups), unlike everything
@@ -579,6 +608,7 @@ end
         plotDendrogram(k);
         plotLDA();
         plotGMM();
+        plotIdentification();
         plotLoadingsAndClusters(k, wavenumbersUsed);
 
         hasResults = true;
@@ -901,6 +931,32 @@ end
     end
 
 % -------------------------------------------------------------------------
+    function plotIdentification()
+    % Populates the Identification tab from IDENTBESTCLASS/IDENTBESTDIST/
+    % IDENTSECONDCLASS/IDENTSECONDDIST (computed in ONRUNANALYSIS, right
+    % after k-means, via IDENTIFYCLUSTERSBYREFERENCE) -- one row per
+    % k-means cluster, its size, nearest reference material class and
+    % distance, and the runner-up, so a large gap between the two reads as
+    % a confident match and a near-tie reads as an ambiguous one.
+        if isempty(identBestClass)
+            identTable.ColumnName = {'Note'};
+            identTable.Data = {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'};
+            return
+        end
+        identTable.ColumnName = {'Cluster', 'N', 'Best match', 'Distance', 'Runner-up', 'Distance'};
+        data = cell(k, 6);
+        for c = 1:k
+            data{c, 1} = c;
+            data{c, 2} = sum(clusterIdx == c);
+            data{c, 3} = identBestClass{c};
+            data{c, 4} = round(identBestDist(c), 4);
+            data{c, 5} = identSecondClass{c};
+            data{c, 6} = round(identSecondDist(c), 4);
+        end
+        identTable.Data = data;
+    end
+
+% -------------------------------------------------------------------------
     function plotLoadingsAndClusters(k, wn)
     % Both PCA loadings and per-cluster mean spectra are plotted as a
     % vertical (waterfall-style) stack, each curve offset by a fixed
@@ -982,13 +1038,22 @@ end
             writetable(refTable, fullfile(d, 'reference_projections.csv'));
         end
 
+        if ~isempty(identBestClass)
+            clusterN = arrayfun(@(c) sum(clusterIdx == c), (1:k)');
+            identTableOut = table((1:k)', clusterN, identBestClass(:), identBestDist(:), ...
+                identSecondClass(:), identSecondDist(:), 'VariableNames', ...
+                {'Cluster','N','BestMatchClass','BestMatchDistance','RunnerUpClass','RunnerUpDistance'});
+            writetable(identTableOut, fullfile(d, 'cluster_identification.csv'));
+        end
+
         save(fullfile(d, 'pca_kmeans_results.mat'), 'X', 'Xproc', 'wavenumbers', 'labels', ...
             'filenames', 'coeff', 'score', 'explained', 'clusterIdx', 'contingency', 'ari', ...
             'kRange', 'wcss', 'meanSil', 'kSilhouette', ...
             'ldaScores', 'explainedLDA', 'cvAccuracy', 'ldaConfMat', 'ldaClassNames', ...
             'gmmClusterIdx', 'gmmPosterior', 'gmmModel', 'gmmBIC', 'gmmBICScan', 'gmmKScanUsed', ...
             'ariGMMvsKmeans', 'ariGMMvsFilename', ...
-            'refDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped');
+            'refDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped', ...
+            'identBestClass', 'identBestDist', 'identSecondClass', 'identSecondDist');
 
         statusLabel.Text = sprintf('Results saved to %s.', d);
     end
@@ -1025,6 +1090,7 @@ end
         gmmClusterIdx = []; gmmPosterior = []; gmmModel = []; gmmBIC = [];
         gmmBICScan = []; gmmKScanUsed = []; ariGMMvsKmeans = []; ariGMMvsFilename = [];
         refScore = []; refClassUsed = {}; refNamesUsed = {}; refSkipped = {};
+        identBestClass = {}; identBestDist = []; identSecondClass = {}; identSecondDist = [];
         kRange = 2:8; wcss = []; meanSil = []; kSilhouette = [];
         scoreReduced = [];
         hasResults = false;
@@ -1084,6 +1150,8 @@ end
         title(axGMMBIC, 'Model selection: BIC vs. number of components');
         title(axLoadings, 'PCA loadings');
         title(axMeanSpectra, 'Mean spectrum per cluster');
+        identTable.ColumnName = {'Note'};
+        identTable.Data = {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'};
 
         statusLabel.Text = 'New session started. Select a folder of .dpt spectra to begin.';
     end
