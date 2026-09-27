@@ -184,9 +184,12 @@ frequently contain.
   app choose it automatically via the silhouette criterion).
   \item Click \textbf{Run analysis}. Results appear across the tabs on the
   right as each step completes.
-  \item Click \textbf{Save results...} to export every plot as a PNG, the
-  per-spectrum cluster assignments as a CSV, and all numeric results as a
-  \code{.mat} file, into a folder of your choice.
+  \item Click \textbf{Save results...} and choose a file name (a folder
+  plus a base name, suggested as the source folder name plus a timestamp)
+  to export every plot as a PNG, the per-spectrum cluster assignments as
+  a CSV, and all numeric results as a \code{.mat} file, all sharing that
+  base name as a prefix -- so saving results from a second analysis never
+  silently overwrites the first.
 \end{enumerate}
 
 % =============================================================================
@@ -269,9 +272,12 @@ automatically at startup as the default. \\
 \subsection{Sidebar: Export}
 % -----------------------------------------------------------------------------
 \begin{argtabletwo}{Control}{Description}{3.2cm}{X}
-\code{Save results...} & Exports every plot (PNG), the per-spectrum
-cluster table (CSV), and all numeric results (\code{.mat}) to a chosen
-folder (\S\ref{sec:outputs}). \\
+\code{Save results...} & Prompts for a file name (\code{.mat}, via a
+save-as dialog rather than just a folder), then exports every plot (PNG),
+the per-spectrum cluster table (CSV), and all numeric results
+(\code{.mat}) to the chosen folder, all prefixed with the chosen base
+name -- so repeated analyses don't overwrite each other. The suggested
+default name already includes a timestamp (\S\ref{sec:outputs}). \\
 \code{New session (clear all)} & Reverts the app to its startup state --
 no spectra loaded, every preprocessing/clustering control back to its
 default -- to begin an unrelated analysis from scratch (confirmation
@@ -811,35 +817,41 @@ when the runner-up distance is close to the best match's.
 \section{Output files}
 \label{sec:outputs}
 % =============================================================================
-\textbf{Save results...} exports, into the chosen folder:
+\textbf{Save results...} prompts for a base file name (via a save-as
+dialog, suggested as \code{<source folder>\_<timestamp>.mat}) and exports,
+into the chosen folder, every file below prefixed with that base name
+(e.g.\ base name \code{run1} produces \code{run1\_scree\_plot.png},
+\code{run1.mat}, etc.) -- so results from a second, later analysis never
+silently overwrite the first:
 
 \begin{itemize}
-  \item \code{preprocessing\_raw\_and\_baseline.png},
-  \code{preprocessing\_processed.png} -- example spectrum before/after
-  preprocessing.
-  \item \code{scree\_plot.png} -- PCA explained variance.
-  \item \code{elbow\_plot.png}, \code{silhouette\_plot.png} -- $k$ selection
-  diagnostics.
-  \item \code{clusters\_by\_filename\_group.png},
-  \code{clusters\_by\_kmeans.png} -- PC1-PC2 scatter plots.
-  \item \code{dendrogram.png} -- hierarchical clustering tree.
-  \item \code{lda\_scatter.png}, \code{lda\_confusion\_matrix.png} -- LDA
-  results.
-  \item \code{gmm\_scatter.png}, \code{gmm\_bic.png} -- GMM soft-clustering
-  scatter (with component ellipses) and the BIC model-selection scan.
-  \item \code{pca\_loadings.png}, \code{mean\_spectrum\_per\_cluster.png} --
-  waterfall-stacked loadings and per-cluster mean spectra.
-  \item \code{cluster\_assignments.csv} -- one row per spectrum: file name,
-  filename-derived group, $k$-means cluster, GMM cluster (hard assignment),
-  and PC1/PC2/PC3 scores.
-  \item \code{reference\_projections.csv} (only if the reference overlay
-  was used) -- one row per reference spectrum actually shown: name,
-  material class, and its projected PC1/PC2/PC3 scores.
-  \item \code{cluster\_identification.csv} (only if a reference library
-  was loaded) -- one row per $k$-means cluster: its size, nearest
+  \item \code{<base>\_preprocessing\_raw\_and\_baseline.png},
+  \code{<base>\_preprocessing\_processed.png} -- example spectrum
+  before/after preprocessing.
+  \item \code{<base>\_scree\_plot.png} -- PCA explained variance.
+  \item \code{<base>\_elbow\_plot.png}, \code{<base>\_silhouette\_plot.png}
+  -- $k$ selection diagnostics.
+  \item \code{<base>\_clusters\_by\_filename\_group.png},
+  \code{<base>\_clusters\_by\_kmeans.png} -- PC1-PC2 scatter plots.
+  \item \code{<base>\_dendrogram.png} -- hierarchical clustering tree.
+  \item \code{<base>\_lda\_scatter.png}, \code{<base>\_lda\_confusion\_matrix.png}
+  -- LDA results.
+  \item \code{<base>\_gmm\_scatter.png}, \code{<base>\_gmm\_bic.png} -- GMM
+  soft-clustering scatter (with component ellipses) and the BIC
+  model-selection scan.
+  \item \code{<base>\_pca\_loadings.png}, \code{<base>\_mean\_spectrum\_per\_cluster.png}
+  -- waterfall-stacked loadings and per-cluster mean spectra.
+  \item \code{<base>\_cluster\_assignments.csv} -- one row per spectrum:
+  file name, filename-derived group, $k$-means cluster, GMM cluster (hard
+  assignment), and PC1/PC2/PC3 scores.
+  \item \code{<base>\_reference\_projections.csv} (only if the reference
+  overlay was used) -- one row per reference spectrum actually shown:
+  name, material class, and its projected PC1/PC2/PC3 scores.
+  \item \code{<base>\_cluster\_identification.csv} (only if a reference
+  library was loaded) -- one row per $k$-means cluster: its size, nearest
   reference material class and distance, and the runner-up class/distance
   (\S\ref{sec:identification}).
-  \item \code{pca\_kmeans\_results.mat} -- every numeric result (raw and
+  \item \code{<base>.mat} -- every numeric result (raw and
   preprocessed data, PCA coefficients/scores/explained variance, cluster
   assignments, contingency table, Adjusted Rand Index, elbow/silhouette
   curves, the full LDA output: discriminant scores, explained variance,

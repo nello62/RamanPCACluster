@@ -1013,24 +1013,48 @@ end
         if ~hasResults
             return
         end
-        d = uigetdir(spectraDir, 'Select a folder to save results into');
-        if isequal(d, 0)
+        % UIPUTFILE (not UIGETDIR) so repeated analyses don't silently
+        % overwrite each other under the same fixed file names -- the
+        % chosen base name (defaulting to the source folder + a
+        % timestamp, so it's already unique without the user having to
+        % type anything) prefixes every exported file. Minimising the
+        % figure first works around a macOS quirk where a uifigure's
+        % CEF-based window can end up in front of the native dialog it
+        % just triggered, blocking on a dialog it then covers (same fix
+        % as RamanFitApp.m's PICKSAVEFILE / G_gaussian_viewer.m).
+        [~, sourceFolderName] = fileparts(spectraDir);
+        timestamp = string(datetime('now', 'Format', 'yyyyMMdd_HHmmss'));
+        defaultName = sprintf('%s_%s.mat', sourceFolderName, timestamp);
+        prevState = fig.WindowState;
+        if strcmp(prevState, 'minimized')
+            prevState = 'normal';
+        end
+        fig.WindowState = 'minimized';
+        drawnow;
+        [f, d] = uiputfile({'*.mat', 'MAT-file'}, 'Save results as', ...
+            fullfile(spectraDir, defaultName));
+        fig.WindowState = prevState;
+        drawnow;
+        if isequal(f, 0)
             return
         end
-        exportgraphics(axPre1, fullfile(d, 'preprocessing_raw_and_baseline.png'));
-        exportgraphics(axPre2, fullfile(d, 'preprocessing_processed.png'));
-        exportgraphics(axScree, fullfile(d, 'scree_plot.png'));
-        exportgraphics(axElbow, fullfile(d, 'elbow_plot.png'));
-        exportgraphics(axSil, fullfile(d, 'silhouette_plot.png'));
-        exportgraphics(axClustersByGroup, fullfile(d, 'clusters_by_filename_group.png'));
-        exportgraphics(axClustersByKmeans, fullfile(d, 'clusters_by_kmeans.png'));
-        exportgraphics(axDendro, fullfile(d, 'dendrogram.png'));
-        exportgraphics(axLDAScatter, fullfile(d, 'lda_scatter.png'));
-        exportgraphics(axLDAConfusion, fullfile(d, 'lda_confusion_matrix.png'));
-        exportgraphics(axGMMScatter, fullfile(d, 'gmm_scatter.png'));
-        exportgraphics(axGMMBIC, fullfile(d, 'gmm_bic.png'));
-        exportgraphics(axLoadings, fullfile(d, 'pca_loadings.png'));
-        exportgraphics(axMeanSpectra, fullfile(d, 'mean_spectrum_per_cluster.png'));
+        [~, baseName] = fileparts(f);
+        prefixed = @(suffix) fullfile(d, [baseName '_' suffix]);
+
+        exportgraphics(axPre1, prefixed('preprocessing_raw_and_baseline.png'));
+        exportgraphics(axPre2, prefixed('preprocessing_processed.png'));
+        exportgraphics(axScree, prefixed('scree_plot.png'));
+        exportgraphics(axElbow, prefixed('elbow_plot.png'));
+        exportgraphics(axSil, prefixed('silhouette_plot.png'));
+        exportgraphics(axClustersByGroup, prefixed('clusters_by_filename_group.png'));
+        exportgraphics(axClustersByKmeans, prefixed('clusters_by_kmeans.png'));
+        exportgraphics(axDendro, prefixed('dendrogram.png'));
+        exportgraphics(axLDAScatter, prefixed('lda_scatter.png'));
+        exportgraphics(axLDAConfusion, prefixed('lda_confusion_matrix.png'));
+        exportgraphics(axGMMScatter, prefixed('gmm_scatter.png'));
+        exportgraphics(axGMMBIC, prefixed('gmm_bic.png'));
+        exportgraphics(axLoadings, prefixed('pca_loadings.png'));
+        exportgraphics(axMeanSpectra, prefixed('mean_spectrum_per_cluster.png'));
 
         if isempty(gmmClusterIdx)
             gmmClusterCol = nan(size(clusterIdx));
@@ -1039,12 +1063,12 @@ end
         end
         resultsTable = table(filenames, labels, clusterIdx, gmmClusterCol, score(:,1), score(:,2), score(:,3), ...
             'VariableNames', {'FileName','FilenameGroup','KMeansCluster','GMMCluster','PC1','PC2','PC3'});
-        writetable(resultsTable, fullfile(d, 'cluster_assignments.csv'));
+        writetable(resultsTable, prefixed('cluster_assignments.csv'));
 
         if ~isempty(refScore)
             refTable = table(refNamesUsed(:), refClassUsed(:), refScore(:,1), refScore(:,2), refScore(:,3), ...
                 'VariableNames', {'Name','Class','PC1','PC2','PC3'});
-            writetable(refTable, fullfile(d, 'reference_projections.csv'));
+            writetable(refTable, prefixed('reference_projections.csv'));
         end
 
         if ~isempty(identBestClass)
@@ -1052,10 +1076,10 @@ end
             identTableOut = table((1:k)', clusterN, identBestClass(:), identBestDist(:), ...
                 identSecondClass(:), identSecondDist(:), 'VariableNames', ...
                 {'Cluster','N','BestMatchClass','BestMatchDistance','RunnerUpClass','RunnerUpDistance'});
-            writetable(identTableOut, fullfile(d, 'cluster_identification.csv'));
+            writetable(identTableOut, prefixed('cluster_identification.csv'));
         end
 
-        save(fullfile(d, 'pca_kmeans_results.mat'), 'X', 'Xproc', 'wavenumbers', 'labels', ...
+        save(fullfile(d, f), 'X', 'Xproc', 'wavenumbers', 'labels', ...
             'filenames', 'coeff', 'score', 'explained', 'clusterIdx', 'contingency', 'ari', ...
             'kRange', 'wcss', 'meanSil', 'kSilhouette', ...
             'ldaScores', 'explainedLDA', 'cvAccuracy', 'ldaConfMat', 'ldaClassNames', ...
@@ -1064,7 +1088,7 @@ end
             'refDir', 'refScore', 'refClassUsed', 'refNamesUsed', 'refSkipped', ...
             'identBestClass', 'identBestDist', 'identSecondClass', 'identSecondDist');
 
-        statusLabel.Text = sprintf('Results saved to %s.', d);
+        statusLabel.Text = sprintf('Results saved to %s (prefix "%s").', d, baseName);
     end
 
 % -------------------------------------------------------------------------
