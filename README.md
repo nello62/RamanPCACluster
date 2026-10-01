@@ -70,8 +70,9 @@ as a MATLAB script and an interactive App.
   range does not fully cover the analysis range are skipped and reported,
   not silently dropped or extrapolated.
 - `plotReferenceOverlay.m` — draws already-projected reference points on
-  a PCA scatter plot, one marker shape (cycling through a fixed set) and
-  HSV color per material class, with a legend entry each.
+  a PCA scatter (2D) or PCA scatter3 (3D, based on how many columns of
+  score it's given) plot, one marker shape (cycling through a fixed set)
+  and HSV color per material class, with a legend entry each.
 - `identifyClustersByReference.m` — indicative material identification:
   for each k-means cluster, the reference material class whose spectra
   (averaged into that class's own centroid) sit closest in PCA space,
@@ -79,6 +80,10 @@ as a MATLAB script and an interactive App.
   the match is. A descriptive nearest-centroid heuristic, not a fitted or
   cross-validated classifier -- see "Cluster identification" in the
   Pipeline section below.
+- `loadPCAResults.m`, `plotPCAResults.m`, `plotScreeResults.m`,
+  `plotDendrogramResults.m`, `plotGMMResults.m`, `drawGaussianEllipse.m`,
+  `drawGaussianEllipsoid.m` — re-plot a previously saved results file
+  without rerunning the analysis; see "Re-plotting saved results" below.
 - `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m` —
   third-party/personal helper functions, copied in for self-containment
   (see below).
@@ -141,6 +146,53 @@ as a MATLAB script and an interactive App.
     Adjusted Rand Index between the GMM and k-means partitions (how much
     the two methods agree), and a BIC scan over 1-8 components as an
     independent check on the chosen k.
+
+## Re-plotting saved results
+
+`plotPCAResults.m`, `plotScreeResults.m`, `plotDendrogramResults.m`, and
+`plotGMMResults.m` re-plot figures from a results file saved by either
+app or script (`<base>.mat` / `pca_kmeans_results.mat`), without
+rerunning any of the analysis -- the first four of a growing family of
+`plot*` functions meant to work directly off a saved file (more will
+cover the LDA tab the same way).
+
+```matlab
+plotPCAResults('run1.mat');                          % PC1 vs PC2, k-means clusters
+plotPCAResults('run1.mat', 'ColorBy', 'group');       % colored by filename-derived group instead
+plotPCAResults('run1.mat', 'ColorBy', 'gmm');         % colored by GMM component (if the file has one)
+plotPCAResults('run1.mat', 'Ellipses', false, 'Reference', false);  % bare scatter only
+plotPCAResults('run1.mat', 'Dims', [1 2 3]);          % 3D PC1-PC2-PC3, with confidence ellipsoids
+
+plotScreeResults('run1.mat');                         % explained + cumulative explained variance
+plotScreeResults('run1.mat', 'NumComponents', 15);    % show more/fewer leading PCs than the default 10
+
+plotDendrogramResults('run1.mat');                    % Ward-linkage dendrogram
+plotDendrogramResults('run1.mat', 'K', 6);            % tune the color threshold for a different k
+
+plotGMMResults('run1.mat');                           % GMM scatter (model ellipses) + BIC scan
+plotGMMResults('run1.mat', 'Dims', [1 2 3]);          % 3D scatter with confidence ellipsoids
+```
+
+`plotPCAResults` draws the experimental data, 80/85/90% confidence
+ellipses (2D) or ellipsoids (3D) per group/cluster, and the saved
+reference-library overlay if the file has one -- the same information as
+the app's own "Clusters" tab. `plotScreeResults` draws each PC's own
+explained variance (bars) alongside the cumulative explained variance
+(line) -- the same information as the app's own "PCA" tab.
+`plotDendrogramResults` draws the Ward-linkage hierarchical clustering
+tree on `scoreReduced` (the exact PCA subspace k-means clustered on, not
+just PC1-PC2 -- saved alongside `score` since this function was added;
+an older file without it falls back to the full `score` matrix with a
+warning). `plotGMMResults` draws the GMM soft-clustering scatter (each
+component's confidence ellipse/ellipsoid from the *fitted model's own*
+mean/covariance, not a post-hoc empirical one) alongside the saved BIC
+model-selection scan -- the same information as the app's own "GMM" tab;
+errors if the file has no GMM result. All four reconstruct their figure
+from the `.mat` file alone. `loadPCAResults.m` (loads/validates the file,
+filling in any field an older save is missing) and
+`drawGaussianEllipse.m`/`drawGaussianEllipsoid.m` (the 2D/3D
+confidence-region primitives, shared with `PCAClusterApp.m` itself) are
+shared building blocks, usable directly for a custom plot.
 
 ## Data
 

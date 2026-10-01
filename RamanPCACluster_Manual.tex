@@ -852,8 +852,8 @@ silently overwrite the first:
   reference material class and distance, and the runner-up class/distance
   (\S\ref{sec:identification}).
   \item \code{<base>.mat} -- every numeric result (raw and
-  preprocessed data, PCA coefficients/scores/explained variance, cluster
-  assignments, contingency table, Adjusted Rand Index, elbow/silhouette
+  preprocessed data, PCA coefficients/scores/scoreReduced/explained
+  variance, cluster assignments, contingency table, Adjusted Rand Index, elbow/silhouette
   curves, the full LDA output: discriminant scores, explained variance,
   cross-validated accuracy, confusion matrix, class names; the full GMM
   output: the fitted \code{gmdistribution} model, hard cluster assignment,
@@ -864,6 +864,74 @@ silently overwrite the first:
   covering the analysis range; and, if computed, each cluster's best-match
   and runner-up identification classes/distances).
 \end{itemize}
+
+% =============================================================================
+\section{Re-plotting saved results}
+\label{sec:replotting}
+% =============================================================================
+Every figure above can also be reproduced later, directly from a saved
+\code{.mat} file, without rerunning any part of the analysis --
+\code{plotPCAResults.m}, \code{plotScreeResults.m},
+\code{plotDendrogramResults.m}, and \code{plotGMMResults.m} are the first
+four of a growing family of \code{plot*} functions built this way (more
+are planned for the LDA tab).
+
+\begin{lstlisting}[style=matlabstyle]
+plotPCAResults('run1.mat');                    % PC1 vs PC2, k-means clusters
+plotPCAResults('run1.mat', 'ColorBy', 'group'); % by filename-derived group
+plotPCAResults('run1.mat', 'ColorBy', 'gmm');   % by GMM component (if present)
+plotPCAResults('run1.mat', 'Ellipses', false, 'Reference', false); % bare scatter
+plotPCAResults('run1.mat', 'Dims', [1 2 3]);   % 3D PC1-PC2-PC3, with ellipsoids
+
+plotScreeResults('run1.mat');                  % explained + cumulative variance
+plotScreeResults('run1.mat', 'NumComponents', 15); % more/fewer leading PCs than the default 10
+
+plotDendrogramResults('run1.mat');             % Ward-linkage dendrogram
+plotDendrogramResults('run1.mat', 'K', 6);     % tune the color threshold for a different k
+
+plotGMMResults('run1.mat');                    % GMM scatter (model ellipses) + BIC scan
+plotGMMResults('run1.mat', 'Dims', [1 2 3]);   % 3D scatter with confidence ellipsoids
+\end{lstlisting}
+
+\code{plotPCAResults} draws the experimental scores (colored by
+\code{'kmeans'} (default), \code{'group'}, or \code{'gmm'}), 80/85/90\%
+confidence ellipses (2D, \S\ref{sec:ellipses}) or ellipsoids (3D) per
+group/cluster, and the saved reference-library overlay
+(\S\ref{sec:references}) if the file has one -- the same information as
+the \textbf{Clusters} tab, reconstructed from the saved file alone. A
+3-element \code{'Dims'} (e.g.\ \code{[1 2 3]}) switches automatically to a
+3D \code{scatter3} view; the 2D confidence ellipse and its 3D counterpart
+are built from the exact same eigendecomposition of the group's
+mean/covariance (\S\ref{sec:ellipses}), just rendered as an outline versus
+three nested semi-transparent shells. \code{plotScreeResults} draws each
+retained PC's own explained variance (bars, left axis) alongside the
+cumulative explained variance (line, right axis) -- the same plot as the
+\textbf{PCA} tab (\S\ref{sec:pca}). \code{plotDendrogramResults} rebuilds
+the Ward-linkage tree (\S\ref{sec:dendrogram}) on \code{scoreReduced} --
+the exact reduced PCA subspace $k$-means clustered on, saved to the
+\code{.mat} file specifically so this function could reproduce the
+\emph{same} tree rather than one built on every retained PC instead
+(which a dendrogram on the full \code{score} would otherwise silently
+be); a file saved before this addition falls back to \code{score} with a
+warning. \code{plotGMMResults} draws the two \textbf{GMM} tab panels
+(\S\ref{sec:gmm}) together: the soft-clustering scatter, with each
+component's confidence ellipse/ellipsoid built from the \emph{fitted
+model's own} mean/covariance (\code{gmmModel.mu}/\code{.Sigma}, saved as
+part of the results file) rather than a post-hoc empirical summary of its
+assigned points; and the saved BIC model-selection scan, with the
+lowest-BIC point starred and the $k$ actually used marked by a dashed
+line. It errors if the file has no GMM result (predates the feature, or
+the fit failed for that run).
+
+Two supporting functions are shared building blocks, usable directly for
+a custom plot: \code{loadPCAResults.m} loads (or passes through) the
+results struct, filling in any field missing from an older save with an
+empty default so callers don't need to check for it first; and
+\code{drawGaussianEllipse.m} / \code{drawGaussianEllipsoid.m} draw the
+2D/3D confidence region of a given mean/covariance into an already-held
+axes -- the same primitives \code{PCAClusterApp.m} itself uses for its
+own ellipse/GMM-ellipse rendering, so a saved-file replot and the live
+app draw identically shaped regions.
 
 % =============================================================================
 \begin{thebibliography}{9}

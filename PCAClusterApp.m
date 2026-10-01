@@ -761,25 +761,6 @@ end
     end
 
 % -------------------------------------------------------------------------
-    function drawGaussianEllipse(ax, mu, C, color)
-    % Shared core of PLOTCONFIDENCEELLIPSE/PLOTGMM: 80/85/90% confidence
-    % ellipses (dotted/dashed/solid) of a bivariate normal with mean MU
-    % and covariance C. HANDLEVISIBILITY off so these don't add clutter
-    % entries to the existing per-group/per-cluster legend from GSCATTER.
-        [V, D] = eig(C);
-        theta = linspace(0, 2*pi, 100);
-        circle = [cos(theta); sin(theta)];
-        confLevels = [0.80 0.85 0.90];
-        styles = {':', '--', '-'};
-        for i = 1:numel(confLevels)
-            r = sqrt(chi2inv(confLevels(i), 2));
-            pts = mu(:) + V * sqrt(D) * r * circle;
-            plot(ax, pts(1,:), pts(2,:), styles{i}, 'Color', color, ...
-                'LineWidth', 1.2, 'HandleVisibility', 'off');
-        end
-    end
-
-% -------------------------------------------------------------------------
     function plotDendrogram(k)
     % Hierarchical clustering (Ward linkage) on the same PCA scores used
     % for k-means -- an alternative view of cluster structure that
@@ -1080,7 +1061,7 @@ end
         end
 
         save(fullfile(d, f), 'X', 'Xproc', 'wavenumbers', 'labels', ...
-            'filenames', 'coeff', 'score', 'explained', 'clusterIdx', 'contingency', 'ari', ...
+            'filenames', 'coeff', 'score', 'scoreReduced', 'explained', 'clusterIdx', 'contingency', 'ari', ...
             'kRange', 'wcss', 'meanSil', 'kSilhouette', ...
             'ldaScores', 'explainedLDA', 'cvAccuracy', 'ldaConfMat', 'ldaClassNames', ...
             'gmmClusterIdx', 'gmmPosterior', 'gmmModel', 'gmmBIC', 'gmmBICScan', 'gmmKScanUsed', ...
