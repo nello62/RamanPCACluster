@@ -81,9 +81,10 @@ as a MATLAB script and an interactive App.
   cross-validated classifier -- see "Cluster identification" in the
   Pipeline section below.
 - `loadPCAResults.m`, `plotPCAResults.m`, `plotScreeResults.m`,
-  `plotDendrogramResults.m`, `plotGMMResults.m`, `drawGaussianEllipse.m`,
-  `drawGaussianEllipsoid.m` — re-plot a previously saved results file
-  without rerunning the analysis; see "Re-plotting saved results" below.
+  `plotDendrogramResults.m`, `plotGMMResults.m`, `plotLDAResults.m`,
+  `drawGaussianEllipse.m`, `drawGaussianEllipsoid.m` — re-plot a previously
+  saved results file without rerunning the analysis; see "Re-plotting
+  saved results" below.
 - `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m` —
   third-party/personal helper functions, copied in for self-containment
   (see below).
@@ -149,12 +150,11 @@ as a MATLAB script and an interactive App.
 
 ## Re-plotting saved results
 
-`plotPCAResults.m`, `plotScreeResults.m`, `plotDendrogramResults.m`, and
-`plotGMMResults.m` re-plot figures from a results file saved by either
-app or script (`<base>.mat` / `pca_kmeans_results.mat`), without
-rerunning any of the analysis -- the first four of a growing family of
-`plot*` functions meant to work directly off a saved file (more will
-cover the LDA tab the same way).
+`plotPCAResults.m`, `plotScreeResults.m`, `plotDendrogramResults.m`,
+`plotGMMResults.m`, and `plotLDAResults.m` re-plot figures from a results
+file saved by either app or script (`<base>.mat` / `pca_kmeans_results.mat`),
+without rerunning any of the analysis -- a growing family of `plot*`
+functions meant to work directly off a saved file.
 
 ```matlab
 plotPCAResults('run1.mat');                          % PC1 vs PC2, k-means clusters
@@ -171,6 +171,8 @@ plotDendrogramResults('run1.mat', 'K', 6);            % tune the color threshold
 
 plotGMMResults('run1.mat');                           % GMM scatter (model ellipses) + BIC scan
 plotGMMResults('run1.mat', 'Dims', [1 2 3]);          % 3D scatter with confidence ellipsoids
+
+plotLDAResults('run1.mat');                           % LD1 vs LD2 + cross-validated confusion matrix
 ```
 
 `plotPCAResults` draws the experimental data, 80/85/90% confidence
@@ -187,8 +189,13 @@ warning). `plotGMMResults` draws the GMM soft-clustering scatter (each
 component's confidence ellipse/ellipsoid from the *fitted model's own*
 mean/covariance, not a post-hoc empirical one) alongside the saved BIC
 model-selection scan -- the same information as the app's own "GMM" tab;
-errors if the file has no GMM result. All four reconstruct their figure
-from the `.mat` file alone. `loadPCAResults.m` (loads/validates the file,
+errors if the file has no GMM result. `plotLDAResults` draws the LD1-vs-LD2
+canonical discriminant scatter (colored by filename-derived group) and the
+cross-validated confusion matrix -- the same information as the app's own
+"LDA" tab; errors if the file has no LDA result (predates the feature, or
+fewer than two filename-derived groups were present at analysis time). All
+five reconstruct their figure from the `.mat` file alone. `loadPCAResults.m`
+(loads/validates the file,
 filling in any field an older save is missing) and
 `drawGaussianEllipse.m`/`drawGaussianEllipsoid.m` (the 2D/3D
 confidence-region primitives, shared with `PCAClusterApp.m` itself) are

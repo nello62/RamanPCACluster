@@ -10,10 +10,10 @@ function S = loadPCAResults(source)
 %   built on top of this one accepts either a file path or an in-memory
 %   struct interchangeably.
 %
-%   A results file saved before the GMM/reference-library/identification
-%   features existed won't have those fields at all; they are filled in
-%   here as empty, so callers can check e.g. ISEMPTY(S.refScore) rather
-%   than ISFIELD(S,'refScore') everywhere.
+%   A results file saved before the LDA/GMM/reference-library/
+%   identification features existed won't have those fields at all; they
+%   are filled in here as empty, so callers can check e.g.
+%   ISEMPTY(S.refScore) rather than ISFIELD(S,'refScore') everywhere.
 %
 %   See also PLOTPCARESULTS, PCACLUSTERAPP, PCA_KMEANS_ANALYSIS.
     if ischar(source) || isstring(source)
@@ -34,6 +34,8 @@ function S = loadPCAResults(source)
 
     optionalDefaults = struct( ...
         'scoreReduced', [], ...
+        'ldaScores', [], 'explainedLDA', [], 'cvAccuracy', [], ...
+        'ldaConfMat', [], 'ldaClassNames', {{}}, ...
         'gmmClusterIdx', [], ...
         'refScore', [], 'refClassUsed', {{}}, 'refNamesUsed', {{}}, 'refSkipped', {{}}, ...
         'identBestClass', {{}}, 'identBestDist', [], ...

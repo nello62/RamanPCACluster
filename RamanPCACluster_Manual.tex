@@ -872,9 +872,9 @@ silently overwrite the first:
 Every figure above can also be reproduced later, directly from a saved
 \code{.mat} file, without rerunning any part of the analysis --
 \code{plotPCAResults.m}, \code{plotScreeResults.m},
-\code{plotDendrogramResults.m}, and \code{plotGMMResults.m} are the first
-four of a growing family of \code{plot*} functions built this way (more
-are planned for the LDA tab).
+\code{plotDendrogramResults.m}, \code{plotGMMResults.m}, and
+\code{plotLDAResults.m} are a growing family of \code{plot*} functions
+built this way.
 
 \begin{lstlisting}[style=matlabstyle]
 plotPCAResults('run1.mat');                    % PC1 vs PC2, k-means clusters
@@ -891,6 +891,8 @@ plotDendrogramResults('run1.mat', 'K', 6);     % tune the color threshold for a 
 
 plotGMMResults('run1.mat');                    % GMM scatter (model ellipses) + BIC scan
 plotGMMResults('run1.mat', 'Dims', [1 2 3]);   % 3D scatter with confidence ellipsoids
+
+plotLDAResults('run1.mat');                    % LD1 vs LD2 + cross-validated confusion matrix
 \end{lstlisting}
 
 \code{plotPCAResults} draws the experimental scores (colored by
@@ -921,7 +923,14 @@ part of the results file) rather than a post-hoc empirical summary of its
 assigned points; and the saved BIC model-selection scan, with the
 lowest-BIC point starred and the $k$ actually used marked by a dashed
 line. It errors if the file has no GMM result (predates the feature, or
-the fit failed for that run).
+the fit failed for that run). \code{plotLDAResults} draws the two
+\textbf{LDA} tab panels (\S\ref{sec:lda}) together: the LD1-vs-LD2
+canonical discriminant scatter (LD1 vs.\ sample index if only one
+discriminant axis exists, i.e.\ exactly two filename-derived groups),
+colored by filename-derived group; and the cross-validated confusion
+matrix, with per-cell counts and the overall accuracy in the title. It
+errors if the file has no LDA result (predates the feature, or fewer than
+two filename-derived groups were present at analysis time).
 
 Two supporting functions are shared building blocks, usable directly for
 a custom plot: \code{loadPCAResults.m} loads (or passes through) the
