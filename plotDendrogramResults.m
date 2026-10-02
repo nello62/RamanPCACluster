@@ -16,7 +16,7 @@ function ax = plotDendrogramResults(source, varargin)
 %               cosmetic -- a dendrogram doesn't need k to be built, only
 %               to decide where its coloring switches branches.
 %     'Labels'  {n x 1} cellstr of leaf labels (default: FILENAMES, with
-%               any trailing ".dpt" stripped).
+%               the file extension stripped).
 %     'Axes'    target axes (default: creates a new figure/axes).
 %
 %   A results file saved before SCOREREDUCED was recorded falls back to
@@ -56,7 +56,7 @@ function ax = plotDendrogramResults(source, varargin)
     end
 
     if isempty(opt.Labels)
-        leafLabels = regexprep(S.filenames, '\.dpt$', '');
+        [~, leafLabels] = cellfun(@fileparts, S.filenames, 'UniformOutput', false);
     else
         leafLabels = cellstr(opt.Labels);
     end

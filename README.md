@@ -1,7 +1,7 @@
 # RamanPCACluster
 
-Unsupervised PCA + k-means clustering of Raman spectra (`.dpt` format),
-as a MATLAB script and an interactive App.
+Unsupervised PCA + k-means clustering of Raman spectra (`.dpt`/`.csv`/
+`.spc`/`.wdf` format), as a MATLAB script and an interactive App.
 
 ## Requirements
 
@@ -9,12 +9,14 @@ as a MATLAB script and an interactive App.
   `silhouette`, `fitgmdist`, `fitcdiscr`)
 - **Signal Processing Toolbox** (`sgolayfilt`)
 - No external dependencies beyond MATLAB itself: `backcor.m`, `airPLS.m`,
-  `snip.m`, `apls.m`, and `readdpt.m` are included in this folder.
+  `snip.m`, `apls.m`, `readdpt.m`, and the `.spc`/`.wdf` readers (see
+  "Supported spectrum file formats" below) are included in this folder.
 
 ## Files
 
-- `PCAClusterApp.m` — interactive app: pick a folder of `.dpt` spectra,
-  set the spectral range, preprocessing, and number of clusters, run the
+- `PCAClusterApp.m` — interactive app: pick a folder of spectra (any mix
+  of `.dpt`/`.csv`/`.spc`/`.wdf`, see "Supported spectrum file formats"
+  below), set the spectral range, preprocessing, and number of clusters, run the
   analysis, inspect the results across tabs (including a hierarchical
   clustering dendrogram, an LDA tab, a GMM soft-clustering tab, an
   Identification tab, and optional 80/85/90% confidence ellipses on the
@@ -29,13 +31,14 @@ as a MATLAB script and an interactive App.
 - `PCA_kmeans_analysis.m` — the same pipeline as a plain script (edit the
   top of the file to point at a different `Spectra/` folder), useful for
   batch/reproducible runs outside the GUI.
-- `loadRamanSpectra.m` — loads every `.dpt` file in a folder onto a common
-  wavenumber grid; also derives a group label per spectrum from its
-  filename (everything before the underscore that introduces the sample
-  identifier, e.g. `CT_P_11b.0.dpt` → `CT_P`, `Paradiso_31-nonpellet.0.dpt`
-  → `Paradiso` — tolerant of irregularly-formatted sample identifiers),
-  used only for validating/plotting the clustering, never for the
-  clustering itself.
+- `loadRamanSpectra.m` — loads every `.dpt`/`.csv`/`.spc`/`.wdf` file in a
+  folder onto a common wavenumber grid (same readers as RamanFitApp, see
+  "Supported spectrum file formats" below); also derives a group label
+  per spectrum from its filename (everything before the underscore that
+  introduces the sample identifier, e.g. `CT_P_11b.0.dpt` → `CT_P`,
+  `Paradiso_31-nonpellet.0.dpt` → `Paradiso` — tolerant of
+  irregularly-formatted sample identifiers), used only for
+  validating/plotting the clustering, never for the clustering itself.
 - `preprocessSpectra.m` — baseline removal (choice of backcor / airPLS /
   SNIP / APLS, optional), Savitzky-Golay smoothing (optional), and
   normalization (area / max / SNV / none) -- the same four baseline
@@ -57,11 +60,11 @@ as a MATLAB script and an interactive App.
   reports each fit's BIC, as a model-selection diagnostic independent of
   k-means' own elbow/silhouette choice of k.
 - `loadReferenceSpectra.m` — loads a folder of reference spectra (flat
-  `.txt` files, two whitespace-separated columns, own native wavenumber
-  grid per file -- unlike the main dataset, a reference library is not
-  required to share one common grid), and derives each one's material
-  class from its file name (e.g. "Acrylic 1. Red Fiber
-  (Polyacrylonitrile).txt" -> "Acrylic").
+  `.txt`/`.dpt`/`.csv`/`.spc`/`.wdf` files, own native wavenumber grid per
+  file -- unlike the main dataset, a reference library is not required to
+  share one common grid, nor to all use the same format), and derives
+  each one's material class from its file name (e.g. "Acrylic 1. Red
+  Fiber (Polyacrylonitrile).txt" -> "Acrylic").
 - `projectReferenceSpectra.m` — interpolates each reference spectrum onto
   the current analysis' own wavenumber grid, preprocesses it with the
   exact same options as the main dataset, and projects it into the
@@ -85,14 +88,16 @@ as a MATLAB script and an interactive App.
   `drawGaussianEllipse.m`, `drawGaussianEllipsoid.m` — re-plot a previously
   saved results file without rerunning the analysis; see "Re-plotting
   saved results" below.
-- `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m` —
-  third-party/personal helper functions, copied in for self-containment
-  (see below).
+- `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m`, `readspc.m`,
+  `readwdf.m` (plus the `GSSpcRead`/`WdfReader` third-party libraries they
+  wrap -- see "Supported spectrum file formats" below) — third-party/
+  personal helper functions, copied in for self-containment (see below).
 
 ## Pipeline
 
-1. **Load**: every `.dpt` spectrum in a folder, stacked into one matrix
-   (all files must share the same wavenumber grid).
+1. **Load**: every `.dpt`/`.csv`/`.spc`/`.wdf` spectrum in a folder,
+   stacked into one matrix (all files must share the same wavenumber
+   grid, regardless of format).
 2. **Restrict** to a chosen spectral range (optional).
 3. **Preprocess**: baseline removal (airPLS) + light smoothing +
    normalization, so PCA isn't dominated by fluorescence background or
@@ -201,12 +206,44 @@ filling in any field an older save is missing) and
 confidence-region primitives, shared with `PCAClusterApp.m` itself) are
 shared building blocks, usable directly for a custom plot.
 
+## Supported spectrum file formats
+
+`loadRamanSpectra.m` scans a folder for `*.dpt`, `*.csv`, `*.spc`, and
+`*.wdf` files (any mix of the four in the same folder is fine, as long as
+every file shares the same wavenumber grid) and dispatches each one to
+the matching reader -- the same readers RamanFitApp.m uses, so a folder
+of spectra exported for that app can be reused here unchanged:
+
+- **`.dpt`** — comma-separated wavenumber,intensity pairs, no header
+  (`readdpt.m`; Hamamatsu/OPUS-style instrument export).
+- **`.csv`** — exactly two numeric columns (wavenumber, intensity), no
+  header row (plain `readmatrix`). Rejected, with a clear error naming
+  the file, if it has a header row or more/fewer than two columns --
+  this also catches a results `.csv` this app itself saved into the same
+  folder (e.g. `<base>_cluster_assignments.csv`), rather than silently
+  misreading it as a spectrum.
+- **`.spc`** — Galactic/GRAMS binary spectrum format (`readspc.m`,
+  wrapping `GSSpcRead.m`).
+- **`.wdf`** — Renishaw WiRE binary spectrum format (`readwdf.m`,
+  wrapping `WdfReader.m`).
+
+Every file is expected to hold exactly one spectrum. Unlike RamanFitApp,
+a "wide" multi-spectrum file (several intensity columns sharing one
+wavenumber axis) is **not** supported here, since this loader assumes one
+file = one row of the data matrix = one filename-derived group label.
+
+The reference library (`loadReferenceSpectra.m`, "Sidebar: Reference
+library") is a separate loader with its own, more permissive rules (no
+shared-grid requirement, skips unreadable files with a warning instead of
+erroring) -- it reads the same five formats (`.txt`/`.dpt`/`.csv`/`.spc`/
+`.wdf`, any mix), described under "Data" below.
+
 ## Data
 
 `Spectra/` (not tracked in this repository — see `.gitignore`) should
-contain one `.dpt` file per spectrum: two comma-separated columns
-(wavenumber, intensity), no header, same wavenumber grid across every
-file in the folder.
+contain one spectrum file per file (`.dpt`/`.csv`/`.spc`/`.wdf`, see
+"Supported spectrum file formats" above), all sharing the same
+wavenumber grid across the folder.
 
 `SLoPP/` (also not tracked — see `.gitignore`), when present, is used as
 the default reference library: the Southern California Coastal Water
@@ -214,8 +251,11 @@ Research Project's plastics Raman reference spectra (SLoPP/SLoPP-E), one
 `.txt` file per reference spectrum (two whitespace-separated columns,
 wavenumber/intensity, no header, own native grid per file — unlike
 `Spectra/`, these do not need to share a common grid). Any other folder
-of `.txt` reference spectra in the same format works too (picked via
-"Select reference folder..." in the app, or `referenceDir` in the script).
+of reference spectra works too (`.txt`/`.dpt`/`.csv`/`.spc`/`.wdf`, any
+mix -- picked via "Select reference folder..." in the app, or
+`referenceDir` in the script); a non-spectrum file that happens to sit in
+the folder (e.g. SLoPP's own `lib_names*.txt` index) is skipped with a
+warning rather than breaking the load.
 
 ## Included third-party/personal code
 
@@ -238,6 +278,26 @@ of `.txt` reference spectra in the same format works too (picked via
   algorithm description.
 - `readdpt.m` — personal library (`myfileutil/`), reads the plain
   two-column `.dpt` spectrum export format.
+- `readspc.m` (wraps `GSSpcRead.m`, `GSSpcReadStructure.m`,
+  `GetSPCAxisTypes.m`, `GetTechniques.m`, `GSToolsAbout.m`,
+  `LocateItem.m`, `trimstr.m`, `trimleft.m`, `trimright.m`) — reads the
+  Galactic Industries/Thermo GRAMS `.spc` binary spectrum format.
+  Implementation: GSTools, by Kris De Gussem, Raman Spectroscopy Research
+  Group, Department of Analytical Chemistry, Ghent University
+  (2004-2009), dual-licensed GPLv3/BSD (full license text in each file's
+  own header). Copied from `prog/GSTools/` (same subset RamanFitApp.m
+  uses); `readspc.m` itself is original, a thin wrapper around
+  `GSSpcRead`.
+- `readwdf.m` (wraps `WdfReader.m`, `WdfError.m`, `WdfBlockID.m`,
+  `WiREDataType.m`, `WiREDataUnit.m`, `WiREFocusMode.m`, `WiREKeys.m`,
+  `WiREMeasurementType.m`, `WiREScanBasicType.m`, `WiREScanType.m`) —
+  reads the Renishaw WiRE `.wdf` binary spectrum format, via Renishaw's
+  own official MATLAB access package ("Renishaw WiRE WDF access package
+  for MATLAB", MathWorks File Exchange / `Renishaw/wdf-matlab` on
+  GitHub), copyright Renishaw plc, dual-licensed Apache-2.0/BSD-3-Clause.
+  This subset covers read-only, single-spectrum access only (no write
+  support); `readwdf.m` itself is original, a thin wrapper around
+  `WdfReader`.
 
 ---
 

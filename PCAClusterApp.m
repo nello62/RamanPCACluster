@@ -1,6 +1,6 @@
 function PCAClusterApp()
 %PCACLUSTERAPP  Interactive PCA + k-means clustering of a folder of Raman
-%   spectra (.dpt format).
+%   spectra (.dpt, .csv, .spc, or .wdf format -- see LOADRAMANSPECTRA).
 %
 %   PCAClusterApp() opens the app; pick a folder of spectra, optionally
 %   restrict the spectral range and preprocessing/clustering settings,
@@ -54,7 +54,7 @@ sidebarW = 340;
 sidebar = uipanel(fig, 'Position', [0 0 sidebarW 860], 'BorderType', 'line');
 
 statusLabel = uilabel(fig, 'Position', [sidebarW+10 6 1400-sidebarW-20-270 24], ...
-    'Text', 'Select a folder of .dpt spectra to begin.', 'FontColor', [0.35 0.35 0.35]);
+    'Text', 'Select a folder of .dpt/.csv/.spc/.wdf spectra to begin.', 'FontColor', [0.35 0.35 0.35]);
 uilabel(fig, 'Position', [1400-270-10 6 270 24], ...
     'Text', 'Sebastiano Trusso - sebastiano.trusso@cnr.it', ...
     'FontColor', [0.6 0.6 0.6], 'FontSize', 10, 'HorizontalAlignment', 'right');
@@ -297,7 +297,7 @@ end
 
 % -------------------------------------------------------------------------
     function onSelectFolder()
-        d = uigetdir(pwd, 'Select a folder of .dpt Raman spectra');
+        d = uigetdir(pwd, 'Select a folder of .dpt/.csv/.spc/.wdf Raman spectra');
         if isequal(d, 0)
             return
         end
@@ -334,7 +334,7 @@ end
 
 % -------------------------------------------------------------------------
     function onSelectReferenceFolder()
-        d = uigetdir(spectraDir, 'Select a folder of reference spectra (.txt, two columns each)');
+        d = uigetdir(spectraDir, 'Select a folder of reference spectra (.txt/.dpt/.csv/.spc/.wdf)');
         if isequal(d, 0)
             return
         end
@@ -779,7 +779,7 @@ end
         else
             cutoff = 0.7 * max(Z(:,3));
         end
-        leafLabels = regexprep(filenames, '\.dpt$', '');
+        [~, leafLabels] = cellfun(@fileparts, filenames, 'UniformOutput', false);
 
         % DENDROGRAM predates UIAXES support and always draws into a
         % regular figure/GCA, silently ignoring any axes handle passed to
@@ -1171,7 +1171,7 @@ end
         identTable.ColumnName = {'Note'};
         identTable.Data = {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'};
 
-        statusLabel.Text = 'New session started. Select a folder of .dpt spectra to begin.';
+        statusLabel.Text = 'New session started. Select a folder of .dpt/.csv/.spc/.wdf spectra to begin.';
     end
 
 end

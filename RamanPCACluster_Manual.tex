@@ -150,23 +150,57 @@ or \S\ref{sec:outputs} for the output file formats.
   \code{dendrogram}, \code{fitcdiscr}, \code{crossval}).
   \item The \textbf{Signal Processing Toolbox} (\code{sgolayfilt}).
   \item No external dependencies beyond MATLAB itself: \code{backcor.m},
-  \code{airPLS.m}, \code{snip.m}, \code{apls.m}, and \code{readdpt.m} are
-  included alongside the app for self-containment.
+  \code{airPLS.m}, \code{snip.m}, \code{apls.m}, \code{readdpt.m},
+  \code{readspc.m}, \code{readwdf.m}, and the third-party libraries the
+  last two wrap (\S\ref{sec:fileformats}) are included alongside the app
+  for self-containment.
 \end{itemize}
 
 % =============================================================================
 \section{Data format}
 % =============================================================================
-The app reads every \code{.dpt} file in a chosen folder: two comma-separated
-columns (Raman shift in cm$^{-1}$, intensity), no header. All spectra in the
-folder must share the same wavenumber grid -- spectra are stacked directly
-into a matrix rather than interpolated, so a file recorded on a different
-grid raises an error instead of silently corrupting the comparison.
+\subsection{Supported spectrum file formats}
+\label{sec:fileformats}
+The app reads every \code{.dpt}, \code{.csv}, \code{.spc}, and \code{.wdf}
+file in a chosen folder (any mix of the four together is fine), dispatching
+each to the matching reader -- the same readers RamanFitApp.m uses, so a
+folder of spectra exported for that app can be reused here unchanged:
+
+\begin{itemize}
+  \item \textbf{.dpt} -- comma-separated wavenumber,intensity pairs, no
+  header (\code{readdpt.m}; Hamamatsu/OPUS-style instrument export).
+  \item \textbf{.csv} -- exactly two numeric columns (wavenumber,
+  intensity), no header row (plain \code{readmatrix}). A header row or a
+  different column count is rejected with a specific error naming the
+  file, rather than silently misread -- this also catches a results
+  \code{.csv} the app itself previously saved into the same folder (e.g.\
+  \code{<base>\_cluster\_assignments.csv}).
+  \item \textbf{.spc} -- Galactic/GRAMS binary spectrum format
+  (\code{readspc.m}, wrapping \code{GSSpcRead.m}).
+  \item \textbf{.wdf} -- Renishaw WiRE binary spectrum format
+  (\code{readwdf.m}, wrapping \code{WdfReader.m}).
+\end{itemize}
+
+Every file is expected to hold exactly one spectrum. Unlike RamanFitApp, a
+``wide'' multi-spectrum file (several intensity columns sharing one
+wavenumber axis) is \emph{not} supported here, since this loader assumes
+one file = one row of the data matrix = one filename-derived group label.
+The reference library loader (\S\ref{sec:references}) has its own, more
+permissive rules (no shared-grid requirement, skips unreadable files with
+a warning instead of erroring), but reads the same five formats
+(\code{.txt}/\code{.dpt}/\code{.csv}/\code{.spc}/\code{.wdf}, any mix).
+
+All spectra in the folder must share the same wavenumber grid, regardless
+of format -- spectra are stacked directly into a matrix rather than
+interpolated, so a file recorded on a different grid raises an error
+instead of silently corrupting the comparison.
 
 A group label is derived from each file name for later validation/plotting
-only (it never influences the unsupervised steps): everything before the
-underscore that introduces the sample identifier, itself always starting
-with a digit -- e.g.\ \code{CT\_P\_11b.0.dpt} $\to$ \code{CT\_P},
+only (it never influences the unsupervised steps): the file's own
+extension is stripped first (uniformly across all four formats), then
+everything before the underscore that introduces the sample identifier,
+itself always starting with a digit, is kept -- e.g.\
+\code{CT\_P\_11b.0.dpt} $\to$ \code{CT\_P},
 \code{Paradiso\_31-nonpellet.0.dpt} $\to$ \code{Paradiso}. This is tolerant of
 irregularly-formatted sample identifiers, which real-world file names
 frequently contain.
@@ -177,7 +211,8 @@ frequently contain.
 \begin{enumerate}
   \item Launch the app: \code{PCAClusterApp} at the MATLAB prompt.
   \item Click \textbf{Select spectra folder...} and choose the folder
-  containing the \code{.dpt} files.
+  containing the spectrum files (\code{.dpt}/\code{.csv}/\code{.spc}/
+  \code{.wdf}, \S\ref{sec:fileformats}).
   \item Optionally narrow the \textbf{spectral range}, adjust
   \textbf{preprocessing} (baseline method and parameters, smoothing,
   normalization), and set the \textbf{number of clusters} $k$ (or let the
@@ -199,14 +234,15 @@ frequently contain.
 The window is split into a left sidebar (data selection and analysis
 settings) and a tabbed results area on the right, plus a status bar along the
 bottom that reports the current step and a one-line summary once the run
-completes.
+completes (with the author's contact information shown at its right end).
 
 % -----------------------------------------------------------------------------
 \subsection{Sidebar: Data}
 % -----------------------------------------------------------------------------
 \begin{argtabletwo}{Control}{Description}{3.2cm}{X}
 \code{Select spectra folder...} & Opens a folder picker; loads every
-\code{.dpt} file inside and reports the spectrum count. Shows
+\code{.dpt}/\code{.csv}/\code{.spc}/\code{.wdf} file inside
+(\S\ref{sec:fileformats}) and reports the spectrum count. Shows
 ``Importing files...'' while reading, since a large folder can take a
 moment. \\
 \end{argtabletwo}
@@ -263,9 +299,10 @@ reference library into the current PCA space and overlays it on both
 PC1-PC2 scatter plots (\S\ref{sec:references}) at the next
 \code{Run analysis}. Off by default. \\
 \code{Select reference folder...} & Picks a folder of reference spectra
-(flat \code{.txt} files, two columns, own native wavenumber grid per
-file). A \code{SLoPP} folder next to the app, if present, is loaded
-automatically at startup as the default. \\
+(flat \code{.txt}/\code{.dpt}/\code{.csv}/\code{.spc}/\code{.wdf} files,
+any mix, own native wavenumber grid per file). A \code{SLoPP} folder next
+to the app, if present, is loaded automatically at startup as the
+default. \\
 \end{argtabletwo}
 
 % -----------------------------------------------------------------------------
@@ -309,8 +346,10 @@ since it is a reusable resource rather than a per-analysis result. \\
   (same $k$ as $k$-means) marked by a dashed line.
   \item \textbf{Identification} -- one row per $k$-means cluster: its
   size, nearest reference material class and distance, and the runner-up
-  class/distance (\S\ref{sec:identification}). Shown only once a
-  reference library has been loaded and overlaid.
+  class/distance (\S\ref{sec:identification}), with the cluster number
+  colored to match that cluster's own color on the scatter/mean-spectra
+  plots so a row and its plotted cluster are visually linked. Shown only
+  once a reference library has been loaded and overlaid.
   \item \textbf{Loadings} -- PC1/PC2 loadings and per-cluster mean spectra,
   both plotted as an offset (waterfall) stack for readability.
 \end{itemize}
@@ -943,6 +982,24 @@ own ellipse/GMM-ellipse rendering, so a saved-file replot and the live
 app draw identically shaped regions.
 
 % =============================================================================
+\begin{tbnote}
+\textbf{Third-party code for .spc/.wdf support.} \code{readspc.m} wraps
+\code{GSSpcRead.m} (and its small GSTools helper set: \code{GSSpcReadStructure.m},
+\code{GetSPCAxisTypes.m}, \code{GetTechniques.m}, \code{GSToolsAbout.m},
+\code{LocateItem.m}, \code{trimstr.m}, \code{trimleft.m}, \code{trimright.m}),
+by Kris De Gussem, Raman Spectroscopy Research Group, Department of
+Analytical Chemistry, Ghent University (2004--2009), dual-licensed
+GPLv3/BSD (full license text in each file's own header); copied from the
+local \code{prog/GSTools/} toolbox, the same subset RamanFitApp.m uses.
+\code{readwdf.m} wraps \code{WdfReader.m} (and its WiRE enumeration/
+helper types), Renishaw's own official read-only MATLAB access package
+for the WDF format (``Renishaw WiRE WDF access package for MATLAB,''
+MathWorks File Exchange / \code{Renishaw/wdf-matlab} on GitHub),
+copyright Renishaw plc, dual-licensed Apache-2.0/BSD-3-Clause. Both
+wrappers (\code{readspc.m}, \code{readwdf.m}) are original to this
+project.
+\end{tbnote}
+
 \begin{thebibliography}{9}
 % =============================================================================
 \bibitem{Mazet2005}
