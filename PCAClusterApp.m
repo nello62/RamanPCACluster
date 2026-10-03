@@ -19,7 +19,10 @@ function PCAClusterApp()
 %   reference library is loaded, the Identification tab also reports each
 %   k-means cluster's nearest reference material class by centroid
 %   distance in PCA space (IDENTIFYCLUSTERSBYREFERENCE) -- an indicative
-%   heuristic, not a validated classification.
+%   heuristic, not a validated classification -- and the Identification
+%   (3D) tab draws that same pairing visually: a PC1-PC2-PC3 scatter with
+%   a dashed line from each cluster's own centroid to its matched
+%   reference class's centroid.
 %
 %   Requires the Statistics and Machine Learning Toolbox (PCA, KMEANS,
 %   SILHOUETTE, FITGMDIST, FITCDISCR) and Signal Processing Toolbox
@@ -196,6 +199,7 @@ tabDendro = uitab(tg, 'Title', 'Dendrogram');
 tabLDA = uitab(tg, 'Title', 'LDA');
 tabGMM = uitab(tg, 'Title', 'GMM');
 tabIdent = uitab(tg, 'Title', 'Identification');
+tabIdent3D = uitab(tg, 'Title', 'Identification (3D)');
 tabLoadings = uitab(tg, 'Title', 'Loadings');
 
 axPre1 = uiaxes(tabPreprocess, 'Position', [10 10 490 760]);
@@ -237,6 +241,9 @@ uilabel(tabIdent, 'Position', [10 730 970 30], 'WordWrap', 'on', ...
 identTable = uitable(tabIdent, 'Position', [10 10 970 710], ...
     'ColumnName', {'Note'}, 'ColumnEditable', false, ...
     'Data', {'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.'});
+
+axIdent3D = uiaxes(tabIdent3D, 'Position', [10 10 990 760]);
+title(axIdent3D, 'Cluster centroids vs. nearest reference class (PC1-PC2-PC3)');
 
 axLoadings = uiaxes(tabLoadings, 'Position', [10 10 490 760]);
 title(axLoadings, 'PCA loadings');
@@ -293,6 +300,7 @@ end
         % visible area.
         ax.XLimMode = 'auto';
         ax.YLimMode = 'auto';
+        ax.ZLimMode = 'auto';  % harmless on a 2D-only axes; needed for AXIDENT3D
     end
 
 % -------------------------------------------------------------------------
@@ -417,9 +425,12 @@ end
 % -------------------------------------------------------------------------
     function onEllipseCheckChanged()
     % Cheap enough to just redraw from the results already in memory --
-    % no need to rerun PCA/k-means for a purely cosmetic toggle.
+    % no need to rerun PCA/k-means for a purely cosmetic toggle. Controls
+    % both the 2D Clusters tab's confidence ellipses and the 3D
+    % Identification tab's confidence ellipsoids.
         if hasResults
             plotClusters(k);
+            plotIdentification3D();
         end
     end
 
@@ -612,6 +623,7 @@ end
         plotLDA();
         plotGMM();
         plotIdentification();
+        plotIdentification3D();
         plotLoadingsAndClusters(k, wavenumbersUsed);
 
         hasResults = true;
@@ -950,6 +962,99 @@ end
     end
 
 % -------------------------------------------------------------------------
+    function plotIdentification3D()
+    % 3D counterpart to the Identification tab's table: PC1-PC2-PC3
+    % scatter of the actual samples (by k-means cluster) and the
+    % reference-library overlay, with a dashed line from each cluster's
+    % own centroid to its nearest-match reference class's centroid --
+    % the same IDENTBESTCLASS/IDENTBESTDIST pairing the table shows,
+    % drawn where it can be seen directly against the data rather than
+    % read off as a number. Optionally (ELLIPSECHECK), also draws
+    % 80/85/90% confidence ellipsoids per cluster and per reference class
+    % (DRAWGAUSSIANELLIPSOID), in the same colors as their own points --
+    % a visual read of how tight or overlapping each group is in 3D,
+    % beyond the single centroid point the match line itself uses.
+    %
+    % Caveat (worth keeping in mind, not hidden): IDENTBESTDIST itself is
+    % computed in the full retained PCA subspace (SCOREREDUCED, which can
+    % have more than 3 dimensions), while this plot only has 3 axes to
+    % draw in -- so a line's length here is a 3D *projection* of that
+    % distance, not the distance itself. The two can disagree (two
+    % clusters can look close in PC1-3 yet be far apart along a 4th+
+    % component the real match was partly decided by, or vice versa).
+        clearAxesFully(axIdent3D);
+        if isempty(refScore) || isempty(identBestClass)
+            text(axIdent3D, 0.5, 0.5, ...
+                'Enable "Overlay reference spectra" (sidebar) and press Run analysis to identify clusters.', ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            return
+        end
+        if size(score, 2) < 3
+            text(axIdent3D, 0.5, 0.5, ...
+                sprintf('Need at least 3 retained principal components for a 3D view (this run kept %d).', size(score, 2)), ...
+                'HorizontalAlignment', 'center', 'Units', 'normalized');
+            return
+        end
+
+        clusterColors = lines(k);
+        view(axIdent3D, 3);
+        grid(axIdent3D, 'on');
+        hold(axIdent3D, 'on');
+        for c = 1:k
+            mask = clusterIdx == c;
+            scatter3(axIdent3D, score(mask,1), score(mask,2), score(mask,3), 36, clusterColors(c,:), ...
+                'filled', 'DisplayName', sprintf('Cluster %d', c));
+        end
+        plotReferenceOverlay(axIdent3D, refScore(:,1:3), refClassUsed);
+
+        if ellipseCheck.Value
+            % Same "Show confidence ellipses" toggle as the 2D Clusters
+            % tab (ONELLIPSECHECKCHANGED redraws this tab too); skipped
+            % below 4 points since COV needs more points than dimensions
+            % to be well-conditioned in 3D -- silently, not an error, same
+            % convention PLOTPCARESULTS/PLOTGMMRESULTS already use.
+            for c = 1:k
+                mask = clusterIdx == c;
+                if nnz(mask) >= 4
+                    drawGaussianEllipsoid(axIdent3D, mean(score(mask,1:3), 1), cov(score(mask,1:3)), clusterColors(c,:));
+                end
+            end
+            refClassNames = unique(refClassUsed, 'stable');
+            refColors = hsv(numel(refClassNames));  % same order/palette PLOTREFERENCEOVERLAY uses, so colors match
+            for rc = 1:numel(refClassNames)
+                mask = strcmp(refClassUsed, refClassNames{rc});
+                if nnz(mask) >= 4
+                    drawGaussianEllipsoid(axIdent3D, mean(refScore(mask,1:3), 1), cov(refScore(mask,1:3)), refColors(rc,:));
+                end
+            end
+        end
+
+        for c = 1:k
+            clusterCentroid = mean(score(clusterIdx == c, 1:3), 1);
+            refMask = strcmp(refClassUsed, identBestClass{c});
+            refCentroid = mean(refScore(refMask, 1:3), 1);
+            plot3(axIdent3D, [clusterCentroid(1) refCentroid(1)], [clusterCentroid(2) refCentroid(2)], ...
+                [clusterCentroid(3) refCentroid(3)], '--', 'Color', clusterColors(c,:), 'LineWidth', 2, ...
+                'DisplayName', sprintf('Cluster %d -> %s (d=%.3f)', c, identBestClass{c}, identBestDist(c)));
+            plot3(axIdent3D, clusterCentroid(1), clusterCentroid(2), clusterCentroid(3), 'o', ...
+                'MarkerSize', 10, 'MarkerFaceColor', clusterColors(c,:), 'MarkerEdgeColor', 'k', ...
+                'HandleVisibility', 'off');
+            plot3(axIdent3D, refCentroid(1), refCentroid(2), refCentroid(3), 'd', ...
+                'MarkerSize', 10, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'k', ...
+                'HandleVisibility', 'off');
+        end
+        hold(axIdent3D, 'off');
+        legend(axIdent3D, 'Location', 'bestoutside');
+        xlabel(axIdent3D, sprintf('PC1 (%.1f%%)', explained(1)));
+        ylabel(axIdent3D, sprintf('PC2 (%.1f%%)', explained(2)));
+        zlabel(axIdent3D, sprintf('PC3 (%.1f%%)', explained(3)));
+        axIdent3D.XLimMode = 'auto';
+        axIdent3D.YLimMode = 'auto';
+        axIdent3D.ZLimMode = 'auto';
+        title(axIdent3D, 'Cluster centroids vs. nearest reference class (PC1-PC2-PC3)');
+    end
+
+% -------------------------------------------------------------------------
     function plotLoadingsAndClusters(k, wn)
     % Both PCA loadings and per-cluster mean spectra are plotted as a
     % vertical (waterfall-style) stack, each curve offset by a fixed
@@ -1037,6 +1142,7 @@ end
         exportgraphics(axLDAConfusion, prefixed('lda_confusion_matrix.png'));
         exportgraphics(axGMMScatter, prefixed('gmm_scatter.png'));
         exportgraphics(axGMMBIC, prefixed('gmm_bic.png'));
+        exportgraphics(axIdent3D, prefixed('identification_3d.png'));
         exportgraphics(axLoadings, prefixed('pca_loadings.png'));
         exportgraphics(axMeanSpectra, prefixed('mean_spectrum_per_cluster.png'));
 
@@ -1152,6 +1258,7 @@ end
         clearAxesFully(axDendro);
         clearAxesFully(axLDAScatter); clearAxesFully(axLDAConfusion);
         clearAxesFully(axGMMScatter); clearAxesFully(axGMMBIC);
+        clearAxesFully(axIdent3D);
         clearAxesFully(axLoadings); clearAxesFully(axMeanSpectra);
         title(axPre1, 'Example: raw spectrum + estimated baseline');
         title(axPre2, 'Example: after baseline/smooth/normalize');
@@ -1165,6 +1272,7 @@ end
         title(axLDAConfusion, 'Cross-validated confusion matrix');
         title(axGMMScatter, 'Colored by GMM component (soft clustering)');
         title(axGMMBIC, 'Model selection: BIC vs. number of components');
+        title(axIdent3D, 'Cluster centroids vs. nearest reference class (PC1-PC2-PC3)');
         title(axLoadings, 'PCA loadings');
         title(axMeanSpectra, 'Mean spectrum per cluster');
         removeStyle(identTable);

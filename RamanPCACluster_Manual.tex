@@ -350,6 +350,16 @@ since it is a reusable resource rather than a per-analysis result. \\
   colored to match that cluster's own color on the scatter/mean-spectra
   plots so a row and its plotted cluster are visually linked. Shown only
   once a reference library has been loaded and overlaid.
+  \item \textbf{Identification (3D)} -- the same best-match pairing as the
+  Identification table, drawn: a PC1-PC2-PC3 scatter of the samples (by
+  $k$-means cluster) with the reference-library overlay, optional
+  80/85/90\% confidence ellipsoids per cluster/reference class (same
+  ``Show confidence ellipses'' checkbox as the 2D Clusters tab, skipped
+  for any with fewer than 4 points), and a dashed line, per cluster, from
+  its own centroid (filled circle) to its matched reference class's
+  centroid (dark diamond), labeled with the class name and distance in
+  the legend. Shown only once a reference library has been loaded and
+  overlaid, and at least 3 principal components were retained.
   \item \textbf{Loadings} -- PC1/PC2 loadings and per-cluster mean spectra,
   both plotted as an offset (waterfall) stack for readability.
 \end{itemize}
@@ -833,6 +843,24 @@ confident, while two nearly-tied distances reads as genuinely ambiguous
 (e.g.\ Polyethylene vs.\ Polypropylene, whose Raman spectra are
 notoriously similar) rather than a clean identification.
 
+\paragraph{Seeing it, not just reading it.} The Identification (3D) tab
+draws $\boldsymbol\mu_j$ and $\boldsymbol\nu_{\hat c(j)}$ directly, joined
+by a dashed line, on a PC1-PC2-PC3 scatter. This is necessarily a
+\emph{projection} of the match: $\hat c(j)$ and its reported distance are
+computed in the full retained subspace (\S\ref{sec:pca}), which can have
+more than 3 dimensions, while the plot only has 3 axes to draw in -- so a
+short line here does not guarantee a small true distance (two centroids
+can appear close in PC1-3 while differing along a 4th-or-later component
+that the match was partly decided by), and vice versa. Read the plotted
+distance as illustrative, and the table's own number
+(\S\ref{sec:identification}) as the one the match was actually decided
+on. Optionally, the same tab also draws 80/85/90\% confidence ellipsoids
+(\S\ref{sec:ellipses}'s trivariate-normal construction, extended to 3D)
+per cluster and per reference class, in their own colors, built from the
+points' own PC1-PC2-PC3 covariance -- skipped for any cluster/class with
+fewer than 4 points, since a covariance needs more points than dimensions
+to be well-conditioned.
+
 \begin{tbnote}
 \textbf{This is a heuristic, not a classifier.} Unlike LDA
 (\S\ref{sec:lda}), nothing here is fitted or cross-validated: there is no
@@ -878,6 +906,8 @@ silently overwrite the first:
   \item \code{<base>\_gmm\_scatter.png}, \code{<base>\_gmm\_bic.png} -- GMM
   soft-clustering scatter (with component ellipses) and the BIC
   model-selection scan.
+  \item \code{<base>\_identification\_3d.png} -- the PC1-PC2-PC3
+  cluster-centroid-to-reference-class-centroid view (\S\ref{sec:identification}).
   \item \code{<base>\_pca\_loadings.png}, \code{<base>\_mean\_spectrum\_per\_cluster.png}
   -- waterfall-stacked loadings and per-cluster mean spectra.
   \item \code{<base>\_cluster\_assignments.csv} -- one row per spectrum:
@@ -911,9 +941,9 @@ silently overwrite the first:
 Every figure above can also be reproduced later, directly from a saved
 \code{.mat} file, without rerunning any part of the analysis --
 \code{plotPCAResults.m}, \code{plotScreeResults.m},
-\code{plotDendrogramResults.m}, \code{plotGMMResults.m}, and
-\code{plotLDAResults.m} are a growing family of \code{plot*} functions
-built this way.
+\code{plotDendrogramResults.m}, \code{plotGMMResults.m},
+\code{plotLDAResults.m}, and \code{plotIdentification3DResults.m} are a
+growing family of \code{plot*} functions built this way.
 
 \begin{lstlisting}[style=matlabstyle]
 plotPCAResults('run1.mat');                    % PC1 vs PC2, k-means clusters
@@ -932,6 +962,8 @@ plotGMMResults('run1.mat');                    % GMM scatter (model ellipses) + 
 plotGMMResults('run1.mat', 'Dims', [1 2 3]);   % 3D scatter with confidence ellipsoids
 
 plotLDAResults('run1.mat');                    % LD1 vs LD2 + cross-validated confusion matrix
+
+plotIdentification3DResults('run1.mat');       % PC1-PC2-PC3 cluster-to-reference-centroid lines
 \end{lstlisting}
 
 \code{plotPCAResults} draws the experimental scores (colored by
@@ -970,6 +1002,14 @@ colored by filename-derived group; and the cross-validated confusion
 matrix, with per-cell counts and the overall accuracy in the title. It
 errors if the file has no LDA result (predates the feature, or fewer than
 two filename-derived groups were present at analysis time).
+\code{plotIdentification3DResults} draws the \textbf{Identification (3D)}
+tab (\S\ref{sec:identification}): the PC1-PC2-PC3 scatter by $k$-means
+cluster, the reference-library overlay, 80/85/90\% confidence ellipsoids
+per cluster/reference class (optional, \code{'Ellipses'}), and a dashed
+line per cluster from its own centroid to its matched reference class's
+centroid, labeled with the class name and distance. It errors if the
+file has no reference-library identification result, or fewer than 3
+principal components were retained.
 
 Two supporting functions are shared building blocks, usable directly for
 a custom plot: \code{loadPCAResults.m} loads (or passes through) the

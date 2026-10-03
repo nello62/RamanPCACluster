@@ -19,15 +19,18 @@ Unsupervised PCA + k-means clustering of Raman spectra (`.dpt`/`.csv`/
   below), set the spectral range, preprocessing, and number of clusters, run the
   analysis, inspect the results across tabs (including a hierarchical
   clustering dendrogram, an LDA tab, a GMM soft-clustering tab, an
-  Identification tab, and optional 80/85/90% confidence ellipses on the
-  PCA scatter plots), and export them. "New session (clear all)" resets
-  every setting/result back to the app's startup state to begin an
-  unrelated analysis. A folder of known-material reference spectra (e.g.
-  SLoPP/) can optionally be overlaid on the PCA scatter plots, one marker
-  shape per material class -- purely for visual comparison, never fed
-  into the analysis (see `loadReferenceSpectra.m` below) -- and used to
-  suggest a material identity for each k-means cluster (see
-  `identifyClustersByReference.m` below).
+  Identification tab plus its 3D counterpart, and optional 80/85/90%
+  confidence ellipses on the PCA scatter plots), and export them. "New
+  session (clear all)" resets every setting/result back to the app's
+  startup state to begin an unrelated analysis. A folder of known-material
+  reference spectra (e.g. SLoPP/) can optionally be overlaid on the PCA
+  scatter plots, one marker shape per material class -- purely for visual
+  comparison, never fed into the analysis (see `loadReferenceSpectra.m`
+  below) -- and used to suggest a material identity for each k-means
+  cluster (see `identifyClustersByReference.m` below), shown both as a
+  table (Identification) and, in PC1-PC2-PC3, as a line from each
+  cluster's own centroid to its matched reference class's centroid
+  (Identification (3D)).
 - `PCA_kmeans_analysis.m` — the same pipeline as a plain script (edit the
   top of the file to point at a different `Spectra/` folder), useful for
   batch/reproducible runs outside the GUI.
@@ -85,7 +88,8 @@ Unsupervised PCA + k-means clustering of Raman spectra (`.dpt`/`.csv`/
   Pipeline section below.
 - `loadPCAResults.m`, `plotPCAResults.m`, `plotScreeResults.m`,
   `plotDendrogramResults.m`, `plotGMMResults.m`, `plotLDAResults.m`,
-  `drawGaussianEllipse.m`, `drawGaussianEllipsoid.m` — re-plot a previously
+  `plotIdentification3DResults.m`, `drawGaussianEllipse.m`,
+  `drawGaussianEllipsoid.m` — re-plot a previously
   saved results file without rerunning the analysis; see "Re-plotting
   saved results" below.
 - `backcor.m`, `airPLS.m`, `snip.m`, `apls.m`, `readdpt.m`, `readspc.m`,
@@ -127,7 +131,16 @@ Unsupervised PCA + k-means clustering of Raman spectra (`.dpt`/`.csv`/
    incomplete library that may not actually contain the true material --
    read the distance (a small best-match distance with a much larger
    runner-up is a confident match; two nearly-tied distances is not) and
-   the PCA scatter itself, not the label alone.
+   the PCA scatter itself, not the label alone. The "Identification (3D)"
+   tab (App only) shows this same best-match pairing visually: a
+   PC1-PC2-PC3 scatter (with the reference overlay) and a dashed line, per
+   cluster, from its own centroid to its matched reference class's
+   centroid -- note this line's length is a 3D projection of the distance
+   above, which is computed in the full retained PCA subspace (often more
+   than 3 dimensions), so the two can disagree. Optionally (same "Show
+   confidence ellipses" checkbox as the 2D Clusters tab), also draws
+   80/85/90% confidence ellipsoids per cluster and per reference class
+   (skipped for any with fewer than 4 points), in their own colors.
 8. **Dendrogram** (App only): Ward-linkage hierarchical clustering on the
    same retained PCA scores, as an alternative view of cluster structure
    that doesn't require picking k upfront; the color threshold is tuned
@@ -156,10 +169,11 @@ Unsupervised PCA + k-means clustering of Raman spectra (`.dpt`/`.csv`/
 ## Re-plotting saved results
 
 `plotPCAResults.m`, `plotScreeResults.m`, `plotDendrogramResults.m`,
-`plotGMMResults.m`, and `plotLDAResults.m` re-plot figures from a results
-file saved by either app or script (`<base>.mat` / `pca_kmeans_results.mat`),
-without rerunning any of the analysis -- a growing family of `plot*`
-functions meant to work directly off a saved file.
+`plotGMMResults.m`, `plotLDAResults.m`, and `plotIdentification3DResults.m`
+re-plot figures from a results file saved by either app or script
+(`<base>.mat` / `pca_kmeans_results.mat`), without rerunning any of the
+analysis -- a growing family of `plot*` functions meant to work directly
+off a saved file.
 
 ```matlab
 plotPCAResults('run1.mat');                          % PC1 vs PC2, k-means clusters
@@ -178,6 +192,8 @@ plotGMMResults('run1.mat');                           % GMM scatter (model ellip
 plotGMMResults('run1.mat', 'Dims', [1 2 3]);          % 3D scatter with confidence ellipsoids
 
 plotLDAResults('run1.mat');                           % LD1 vs LD2 + cross-validated confusion matrix
+
+plotIdentification3DResults('run1.mat');              % PC1-PC2-PC3 cluster-to-reference-centroid lines
 ```
 
 `plotPCAResults` draws the experimental data, 80/85/90% confidence
@@ -198,8 +214,16 @@ errors if the file has no GMM result. `plotLDAResults` draws the LD1-vs-LD2
 canonical discriminant scatter (colored by filename-derived group) and the
 cross-validated confusion matrix -- the same information as the app's own
 "LDA" tab; errors if the file has no LDA result (predates the feature, or
-fewer than two filename-derived groups were present at analysis time). All
-five reconstruct their figure from the `.mat` file alone. `loadPCAResults.m`
+fewer than two filename-derived groups were present at analysis time).
+`plotIdentification3DResults` draws the PC1-PC2-PC3 scatter, the
+reference-library overlay, 80/85/90% confidence ellipsoids per
+cluster/reference class (optional, `'Ellipses'`), and a dashed line per
+cluster from its own centroid to its matched reference class's centroid
+-- the same information as the app's own "Identification (3D)" tab;
+errors if the file has no reference-library identification result, or
+fewer than 3
+principal components were retained. All six reconstruct their figure
+from the `.mat` file alone. `loadPCAResults.m`
 (loads/validates the file,
 filling in any field an older save is missing) and
 `drawGaussianEllipse.m`/`drawGaussianEllipsoid.m` (the 2D/3D
